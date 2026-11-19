@@ -197,7 +197,8 @@ tfoot td.num { color: var(--ink); }
       <div class="tablewrap"><table id="tbl"></table></div>
       <div class="bar">
         <button class="btn" id="addCol" type="button">+ 항목 추가</button>
-        <button class="btn" id="copy" type="button">📋 카톡용 복사</button>
+        <button class="btn" id="copyImg" type="button">📋 표로 복사</button>
+        <button class="btn" id="copy" type="button">글로 복사</button>
         <span class="grow"></span>
         <button class="btn quiet danger" id="delList" type="button">이 명단 삭제</button>
       </div>
@@ -376,6 +377,43 @@ $("#copy").addEventListener("click", () => {
   if (!navigator.clipboard) return toast("이 브라우저에서는 복사할 수 없어요.");
   navigator.clipboard.writeText(listText(list))
     .then(() => toast("복사했어요. 단톡방에 붙여넣기 하세요."), () => toast("복사하지 못했어요."));
+});
+
+// ---- 표로 복사: 엑셀 양식(제목 줄 / 항목 줄 / 사람 / TOTAL)을 그림으로 그려 클립보드에. 카톡에 붙여넣으면 사진으로 올라감 ----
+function listCanvas(list) {
+  const cols = list.cols, people = list.people, S = 2, H = 34, FONT = 'bold 15px "Malgun Gothic", sans-serif';
+  const on = (p, c) => p.v?.[c.id];
+  const grid = [["", "인원", ...cols.map(c => c.name)],
+    ...people.map((p, i) => [String(i + 1), p.name, ...cols.map(c => !on(p, c) ? "" : c.kind === "time" ? on(p, c) : "✔")]),
+    ["TOTAL", `${people.length}명`, ...cols.map(c => String(people.filter(p => on(p, c)).length))]];
+  const cv = document.createElement("canvas"), g = cv.getContext("2d"), title = list.title || list.name;
+  g.font = FONT;
+  const w = grid[0].map((_, i) => Math.max(48, ...grid.map(r => Math.ceil(g.measureText(r[i]).width) + 24)));
+  const sum = () => w.reduce((a, b) => a + b, 0);
+  g.font = FONT.replace("15px", "19px");
+  w[1] += Math.max(0, Math.ceil(g.measureText(title).width) + 32 - sum());   // 제목이 표보다 길면 이름 칸을 넓힘
+  const W = sum(), rows = grid.length + 1;
+  cv.width = (W + 1) * S; cv.height = (H * rows + 1) * S;   // 크기를 바꾸면 그리기 설정이 초기화되므로 아래에서 다시 지정
+  g.scale(S, S); g.translate(.5, .5);
+  g.textAlign = "center"; g.textBaseline = "middle"; g.strokeStyle = "#000"; g.lineWidth = 1;
+  const cell = (x, y, cw, text, bg, font = FONT) => {
+    g.fillStyle = bg; g.fillRect(x, y, cw, H); g.strokeRect(x, y, cw, H);
+    g.fillStyle = "#000"; g.font = font; g.fillText(text, x + cw / 2, y + H / 2 + 1);
+  };
+  cell(0, 0, W, title, "#fff", FONT.replace("15px", "19px"));
+  let t = 0;
+  const headBg = ["#fff", "#fff", ...cols.map(c => c.kind === "time" ? (t++ % 2 ? "#ff0000" : "#a9d08e") : "#fff")];   // 엑셀 양식과 같은 색
+  grid.forEach((row, r) => {
+    let x = 0;
+    row.forEach((text, i) => { cell(x, H * (r + 1), w[i], text, r === 0 ? headBg[i] : r === grid.length - 1 ? "#f2f2f2" : "#fff"); x += w[i]; });
+  });
+  return cv;
+}
+$("#copyImg").addEventListener("click", () => {
+  const list = L(); if (!list) return;
+  if (!navigator.clipboard?.write || !window.ClipboardItem) return toast("이 브라우저에서는 표로 복사할 수 없어요. ‘글로 복사’를 써 주세요.");
+  listCanvas(list).toBlob(blob => navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+    .then(() => toast("표를 복사했어요. 단톡방에 붙여넣기(Ctrl+V) 하세요."), () => toast("복사하지 못했어요.")));
 });
 
 // ---- 대화상자 ----
