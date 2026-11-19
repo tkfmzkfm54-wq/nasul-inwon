@@ -199,6 +199,7 @@ tfoot td.num { color: var(--ink); }
         <button class="btn" id="addCol" type="button">+ 항목 추가</button>
         <button class="btn" id="copyImg" type="button">📋 표로 복사</button>
         <button class="btn" id="copy" type="button">글로 복사</button>
+        <button class="btn" id="copyMiss" type="button">안 한 사람 복사</button>
         <span class="grow"></span>
         <button class="btn quiet danger" id="delList" type="button">이 명단 삭제</button>
       </div>
@@ -372,11 +373,23 @@ function listText(list) {
   const total = [`TOTAL ${list.people.length}명`, ...list.cols.map(c => `${c.name} ${list.people.filter(p => on(p, c)).length}`)].join(" · ");
   return [list.title || list.name, "", ...rows, "", total].join("\n");
 }
-$("#copy").addEventListener("click", () => {
-  const list = L(); if (!list) return;
+// 체크 항목마다 아직 체크 안 된 사람 (시간 항목은 '안 적힘 = 해당 없음'이라 뺌). 모두 체크된 항목은 줄을 안 만듦
+function missText(list) {
+  const rows = list.cols.filter(c => c.kind === "check").map(c => [c, list.people.filter(p => !p.v?.[c.id])])
+    .filter(([, miss]) => miss.length).map(([c, miss]) => `${c.name} ✖ ${miss.length}명: ${miss.map(p => p.name).join(", ")}`);
+  return rows.length ? [list.title || list.name, "", ...rows].join("\n") : "";
+}
+function copyText(text) {
   if (!navigator.clipboard) return toast("이 브라우저에서는 복사할 수 없어요.");
-  navigator.clipboard.writeText(listText(list))
+  navigator.clipboard.writeText(text)
     .then(() => toast("복사했어요. 단톡방에 붙여넣기 하세요."), () => toast("복사하지 못했어요."));
+}
+$("#copy").addEventListener("click", () => { const list = L(); if (list) copyText(listText(list)); });
+$("#copyMiss").addEventListener("click", () => {
+  const list = L(); if (!list) return;
+  const text = missText(list);
+  if (!text) return toast(list.cols.some(c => c.kind === "check") ? "안 한 사람이 없어요. 모두 체크됐어요." : "체크 항목이 없어요. ‘+ 항목 추가’로 먼저 만들어 주세요.");
+  copyText(text);
 });
 
 // ---- 표로 복사: 엑셀 양식(제목 줄 / 항목 줄 / 사람 / TOTAL)을 그림으로 그려 클립보드에. 카톡에 붙여넣으면 사진으로 올라감 ----
