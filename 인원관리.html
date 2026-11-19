@@ -363,6 +363,12 @@ dialog h2 { margin: 0; font: 22px var(--font-display); }
 tfoot td { border-top: 2px solid var(--line); border-bottom: 0; font-weight: 700; background: var(--surface-2); }
 tfoot td.name { background: var(--surface-2); }
 tfoot td.num { color: var(--ink); }
+.who { border: 0; background: none; padding: 0; font-weight: 700; text-align: left; }
+.who:hover { color: var(--accent); }
+tr.off td { color: var(--muted); }
+tr.off .who { text-decoration: line-through; font-weight: 500; }
+tr.off .chk, tr.off input.time { opacity: .45; }
+.statbox { max-height: 50vh; overflow: auto; box-shadow: none; }
 </style>
 
 <header class="top"><div class="in">
@@ -371,6 +377,10 @@ tfoot td.num { color: var(--ink); }
   <button class="btn" id="newList" type="button">＋ 새 명단</button>
   <button class="btn" id="import" type="button">엑셀 불러오기</button>
   <input type="file" id="importFile" accept=".xlsx" hidden>
+  <button class="btn" id="statsBtn" type="button">📊 참석 통계</button>
+  <button class="btn" id="backup" type="button">💾 전체 백업</button>
+  <button class="btn" id="restore" type="button">백업 불러오기</button>
+  <input type="file" id="restoreFile" accept=".json" hidden>
   <span class="grow"></span>
   <button class="btn primary" id="export" type="button" hidden>엑셀로 받기</button>
 </div></header>
@@ -406,6 +416,9 @@ tfoot td.num { color: var(--ink); }
         <button class="btn" id="copyImg" type="button">📋 표로 복사</button>
         <button class="btn" id="copy" type="button">글로 복사</button>
         <button class="btn" id="copyMiss" type="button">안 한 사람 복사</button>
+        <button class="btn" id="fee" type="button">💰 회비 정산</button>
+        <button class="btn" id="sortBtn" type="button">↕ 정렬</button>
+        <button class="btn" id="fromOld" type="button">지난 명단에서</button>
         <span class="grow"></span>
         <button class="btn quiet danger" id="delList" type="button">이 명단 삭제</button>
       </div>
@@ -459,6 +472,8 @@ function splitNew(names, rows) {   // 이미 있는 이름 + 입력 안에서 �
   for (const n of names) { (seen.has(norm(n)) ? dup : add).push(n); seen.add(norm(n)); }
   return { add, dup };
 }
+// 취소(불참) 표시 p.x: 명단에는 남기고 인원·합계·복사·엑셀·놀이에서는 뺌
+const live = list => list.people.filter(p => !p.x);
 const newId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 // ---- 상태: 브라우저 localStorage 하나에 전부 ----
@@ -489,12 +504,12 @@ function render() {
   $("#app").hidden = !list; $("#empty").hidden = !!list; $("#export").hidden = !list;
   if (!list) return;
   if (document.activeElement !== $("#title")) $("#title").value = list.title || "";
-  const cols = list.cols, people = list.people;
+  const cols = list.cols, people = list.people, here = live(list);
   const val = (p, c) => p.v?.[c.id];
 
   $("#stats").replaceChildren(
-    h("span", { class: "chip lead" }, "인원", h("b", {}, `${people.length}명`)),
-    ...cols.map(c => h("span", { class: "chip" }, c.name, h("b", {}, String(people.filter(p => val(p, c)).length) + (c.kind === "time" ? "명" : "")))));
+    h("span", { class: "chip lead" }, "인원", h("b", {}, `${here.length}명`)),
+    ...cols.map(c => h("span", { class: "chip" }, c.name, h("b", {}, String(here.filter(p => val(p, c)).length) + (c.kind === "time" ? "명" : "")))));
 
   let t = 0;
   const head = h("tr", {}, h("th", { class: "num" }, "번호"), h("th", { class: "name" }, "인원"),
@@ -502,17 +517,18 @@ function render() {
       type: "button", class: "colhead" + (c.kind === "time" ? (t++ % 2 ? " t-red" : " t-green") : ""),
       "data-cid": c.id, title: "눌러서 이름 바꾸기·삭제" }, c.name))),
     h("th", { class: "act" }, h("span", { class: "sr" }, "삭제")));
-  const body = people.length ? people.map((p, i) => h("tr", { "data-pid": p.id, class: hits.has(p.id) ? "hit" : null },
-    h("td", { class: "num" }, String(i + 1)),
-    h("td", { class: "name" }, p.name),
+  let no = 0;
+  const body = people.length ? people.map(p => h("tr", { "data-pid": p.id, class: [hits.has(p.id) && "hit", p.x && "off"].filter(Boolean).join(" ") || null },
+    h("td", { class: "num" }, p.x ? "취소" : String(++no)),
+    h("td", { class: "name" }, h("button", { type: "button", class: "who", title: "눌러서 이름 수정·취소 표시" }, p.name)),
     ...cols.map(c => h("td", {}, c.kind === "time"
       ? h("input", { type: "time", class: "time", value: val(p, c) || "", "data-cid": c.id, "aria-label": `${p.name} ${c.name}` })
       : h("button", { type: "button", class: "chk", "data-cid": c.id, "aria-pressed": val(p, c) ? "true" : "false",
                       "aria-label": `${p.name} ${c.name}` }, val(p, c) ? "✔" : ""))),
     h("td", { class: "act" }, h("button", { type: "button", class: "del", "aria-label": `${p.name} 삭제` }, "✕"))))
     : [h("tr", {}, h("td", { class: "empty", colspan: cols.length + 3 }, "아직 아무도 없어요. 위 칸에 이름을 넣고 Enter를 누르세요."))];
-  const foot = people.length ? h("tfoot", {}, h("tr", {}, h("td", { class: "num" }, "TOTAL"), h("td", { class: "name" }, `${people.length}명`),
-    ...cols.map(c => h("td", {}, String(people.filter(p => val(p, c)).length))), h("td", { class: "act" }))) : null;
+  const foot = people.length ? h("tfoot", {}, h("tr", {}, h("td", { class: "num" }, "TOTAL"), h("td", { class: "name" }, `${here.length}명`),
+    ...cols.map(c => h("td", {}, String(here.filter(p => val(p, c)).length))), h("td", { class: "act" }))) : null;
   $("#tbl").replaceChildren(h("thead", {}, head), h("tbody", {}, body), foot);
 }
 
@@ -546,6 +562,7 @@ $("#tbl").addEventListener("click", e => {
   if (head) return editCol(head.dataset.cid);
   const tr = e.target.closest("tr[data-pid]"); if (!tr) return;
   const p = list.people.find(x => x.id === tr.dataset.pid); if (!p) return;
+  if (e.target.closest(".who")) return editPerson(p);
   const chk = e.target.closest(".chk");
   if (chk) { p.v[chk.dataset.cid] = chk.getAttribute("aria-pressed") !== "true"; return save(); }
   const del = e.target.closest(".del");
@@ -573,16 +590,17 @@ $("#pick").addEventListener("change", e => select(e.target.value));
 // ---- 카톡용 복사: 제목 / 번호. 이름 (체크한 항목, 시간) / TOTAL ----
 function listText(list) {
   const on = (p, c) => p.v?.[c.id];
-  const rows = list.people.map((p, i) => {
+  const people = live(list), gone = list.people.filter(p => p.x);
+  const rows = people.map((p, i) => {
     const marks = list.cols.filter(c => on(p, c)).map(c => c.kind === "time" ? `${c.name} ${on(p, c)}` : c.name);
     return `${i + 1}. ${p.name}` + (marks.length ? ` (${marks.join(", ")})` : "");
   });
-  const total = [`TOTAL ${list.people.length}명`, ...list.cols.map(c => `${c.name} ${list.people.filter(p => on(p, c)).length}`)].join(" · ");
-  return [list.title || list.name, "", ...rows, "", total].join("\n");
+  const total = [`TOTAL ${people.length}명`, ...list.cols.map(c => `${c.name} ${people.filter(p => on(p, c)).length}`)].join(" · ");
+  return [list.title || list.name, "", ...rows, "", total, ...(gone.length ? [`취소 ${gone.length}명: ${gone.map(p => p.name).join(", ")}`] : [])].join("\n");
 }
 // 체크 항목마다 아직 체크 안 된 사람 (시간 항목은 '안 적힘 = 해당 없음'이라 뺌). 모두 체크된 항목은 줄을 안 만듦
 function missText(list) {
-  const rows = list.cols.filter(c => c.kind === "check").map(c => [c, list.people.filter(p => !p.v?.[c.id])])
+  const rows = list.cols.filter(c => c.kind === "check").map(c => [c, live(list).filter(p => !p.v?.[c.id])])
     .filter(([, miss]) => miss.length).map(([c, miss]) => `${c.name} ✖ ${miss.length}명: ${miss.map(p => p.name).join(", ")}`);
   return rows.length ? [list.title || list.name, "", ...rows].join("\n") : "";
 }
@@ -601,7 +619,7 @@ $("#copyMiss").addEventListener("click", () => {
 
 // ---- 표로 복사: 엑셀 양식(제목 줄 / 항목 줄 / 사람 / TOTAL)을 그림으로 그려 클립보드에. 카톡에 붙여넣으면 사진으로 올라감 ----
 function listCanvas(list) {
-  const cols = list.cols, people = list.people, S = 2, H = 34, FONT = 'bold 15px "Malgun Gothic", sans-serif';
+  const cols = list.cols, people = live(list), S = 2, H = 34, FONT = 'bold 15px "Malgun Gothic", sans-serif';
   const on = (p, c) => p.v?.[c.id];
   const grid = [["", "인원", ...cols.map(c => c.name)],
     ...people.map((p, i) => [String(i + 1), p.name, ...cols.map(c => !on(p, c) ? "" : c.kind === "time" ? on(p, c) : "✔")]),
@@ -636,6 +654,124 @@ $("#copyImg").addEventListener("click", () => {
     .then(() => toast("표를 복사했어요. 단톡방에 붙여넣기(Ctrl+V) 하세요."), () => toast("복사하지 못했어요.")));
 });
 
+// ---- 사람 수정: 이름 바꾸기 · 취소(불참) 표시 ----
+async function editPerson(p) {
+  const list = L();
+  const v = await ask({ title: "사람 수정", ok: "저장",
+    fields: [{ id: "name", label: "이름", value: p.name },
+             { id: "x", type: "checkbox", value: !!p.x, label: "취소(불참) · 명단에는 남기고 TOTAL에서 빼기" }],
+    validate: v => !v.name ? "이름을 입력해 주세요." : list.people.some(q => q !== p && norm(q.name) === norm(v.name)) ? `‘${v.name}’ 이미 있어요.` : null });
+  if (!v) return;
+  for (const e of list.tally || []) if (e.name === p.name) e.name = v.name;   // 벌칙 기록은 이름으로 묶여 있어 같이 바꿈
+  p.name = v.name;
+  if (v.x) p.x = true; else delete p.x;
+  save();
+}
+
+// ---- 정렬: 명단 순서 자체를 바꿈(복사·엑셀·놀이가 같은 순서를 씀). 취소한 사람은 항상 맨 아래 ----
+function sortPeople(list, key) {
+  const c = list.cols.find(x => x.id === key), val = p => p.v?.[key];
+  const cmp = !c ? (a, b) => a.name.localeCompare(b.name, "ko")
+    : c.kind === "time" ? (a, b) => (val(a) || "99:99").localeCompare(val(b) || "99:99")
+    : (a, b) => !!val(a) - !!val(b);
+  list.people.sort((a, b) => !!a.x - !!b.x || cmp(a, b));
+}
+$("#sortBtn").addEventListener("click", async () => {
+  const list = L(); if (!list) return;
+  const v = await ask({ title: "정렬", ok: "정렬",
+    fields: [{ id: "key", type: "select", label: "기준", options: [["", "이름순 (가나다)"],
+      ...list.cols.map(c => [c.id, c.kind === "time" ? `${c.name} 빠른 순` : `${c.name} 안 한 사람 먼저`])] }] });
+  if (!v) return;
+  sortPeople(list, v.key);
+  save();
+});
+
+// ---- 지난 명단에서 불러오기: 다른 명단에 있고 지금 명단에 없는 사람(최근 명단부터) ----
+$("#fromOld").addEventListener("click", async () => {
+  const list = L(); if (!list) return;
+  const names = splitNew([...state.lists].reverse().filter(l => l !== list).flatMap(l => l.people.map(p => p.name)), list.people).add;
+  if (!names.length) return toast("다른 명단에 새로 넣을 사람이 없어요.");
+  const v = await ask({ title: "지난 명단에서 불러오기", ok: "추가",
+    fields: [{ id: "who", type: "chips", label: "넣을 사람을 누르세요 (줄 그어진 이름 = 안 고름)", options: names, value: [] }] });
+  if (!v?.who.length) return;
+  for (const name of v.who) list.people.push({ id: newId("p"), name, v: {} });
+  say(`추가: ${v.who.join(", ")}`, "ok");
+  save();
+});
+
+// ---- 회비 정산: 1인 금액 × 입금 체크한 사람. 금액·항목·계좌는 명단마다 기억, 계좌는 새 명단에도 이어 씀 ----
+function feeText(list, amt, col, acct) {
+  const people = live(list), paid = people.filter(p => p.v?.[col.id]), miss = people.filter(p => !p.v?.[col.id]);
+  const won = n => n.toLocaleString("ko-KR") + "원";
+  return [`${list.title || list.name} 회비`, "", `1인 ${won(amt)}`, acct ? `계좌: ${acct}` : null, "",
+    `${col.name} ${paid.length}명 × ${won(amt)} = ${won(paid.length * amt)}`,
+    miss.length ? `미입금 ${miss.length}명 (${won(miss.length * amt)}): ${miss.map(p => p.name).join(", ")}` : "전원 입금 완료 🎉"]
+    .filter(x => x != null).join("\n");
+}
+$("#fee").addEventListener("click", async () => {
+  const list = L(); if (!list) return;
+  const checks = list.cols.filter(c => c.kind === "check");
+  if (!checks.length) return toast("체크 항목이 없어요. ‘+ 항목 추가’로 ‘입금’ 항목을 먼저 만들어 주세요.");
+  const f = list.fee || {};
+  const v = await ask({ title: "회비 정산", ok: "계산",
+    fields: [{ id: "amt", type: "number", label: "1인 금액 (원)", value: f.amt },
+             { id: "col", type: "select", label: "입금 체크 항목", options: checks.map(c => [c.id, c.name]),
+               value: checks.some(c => c.id === f.col) ? f.col : (checks.find(c => c.name.includes("입금")) || checks[0]).id },
+             { id: "acct", label: "계좌 (비워도 돼요)", value: f.acct ?? state.acct }],
+    validate: v => +v.amt > 0 ? null : "금액을 입력해 주세요." });
+  if (!v) return;
+  list.fee = { amt: +v.amt, col: v.col, acct: v.acct };
+  state.acct = v.acct;
+  save();
+  const text = feeText(list, +v.amt, checks.find(c => c.id === v.col), v.acct);
+  if (await ask({ title: "회비 정산", ok: "📋 복사", fields: [{ type: "note", text }] })) copyText(text);
+});
+
+// ---- 참석 통계: 모든 명단을 모아 사람별 참석 횟수(취소 제외)와 마지막으로 나온 명단. 같은 사람 = 이름이 같은 사람 ----
+function statsRows() {
+  const m = new Map();
+  for (const l of state.lists) for (const p of live(l)) {
+    const r = m.get(norm(p.name)) || { n: 0 };
+    m.set(norm(p.name), { name: p.name, n: r.n + 1, last: l.name });
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ko"));
+}
+$("#statsBtn").addEventListener("click", async () => {
+  const rows = statsRows();
+  if (!rows.length) return toast("아직 명단에 사람이 없어요.");
+  const table = h("div", { class: "tablewrap statbox" }, h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "이름"), h("th", {}, "참석"), h("th", {}, "마지막 명단"))),
+    h("tbody", {}, rows.map(r => h("tr", {}, h("td", {}, r.name), h("td", {}, `${r.n}회`), h("td", {}, r.last))))));
+  const v = await ask({ title: `참석 통계 · 명단 ${state.lists.length}개`, ok: "📋 글로 복사", fields: [{ type: "node", node: table }] });
+  if (v) copyText(["참석 통계", "", ...rows.map(r => `${r.name} ${r.n}회 (마지막: ${r.last})`)].join("\n"));
+});
+
+// ---- 전체 백업: 명단 전부 + 벌칙 기록 + 설정을 파일 하나로. 불러오면 지금 내용을 통째로 바꿈 ----
+$("#backup").addEventListener("click", () => {
+  const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(state)], { type: "application/json" })),
+    download: `나는술로_백업_${new Date().toLocaleDateString("sv")}.json` });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+});
+const isBackup = d => Array.isArray(d?.lists) && d.lists.every(l => l?.id && typeof l.name === "string" && Array.isArray(l.people) && Array.isArray(l.cols)
+  && l.people.every(p => p?.id && typeof p.name === "string"));
+$("#restore").addEventListener("click", () => $("#restoreFile").click());
+$("#restoreFile").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  let data = null;
+  try { data = JSON.parse(await file.text()); } catch { /* 아래에서 안내 */ }
+  if (!isBackup(data)) return toast("백업 파일이 아니에요. ‘전체 백업’으로 받은 .json 파일을 골라 주세요.");
+  const ok = await ask({ title: "백업 불러오기", ok: "바꾸기", danger: true,
+    fields: [{ type: "note", text: `지금 있는 명단 ${state.lists.length}개를 지우고\n백업의 명단 ${data.lists.length}개로 바꿀까요?\n되돌릴 수 없어요.` }] });
+  if (!ok) return;
+  for (const l of data.lists) for (const p of l.people) p.v ??= {};
+  state = data;
+  if (!state.lists.some(l => l.id === state.cur)) state.cur = state.lists[0]?.id ?? null;
+  hits = new Set();
+  save();
+  toast(`명단 ${state.lists.length}개를 불러왔어요.`);
+});
+
 // ---- 대화상자 ----
 function ask({ title, fields = [], ok = "확인", danger = false, extra, validate }) {
   return new Promise(res => {
@@ -643,6 +779,7 @@ function ask({ title, fields = [], ok = "확인", danger = false, extra, validat
     const inputs = {};
     f.replaceChildren(h("h2", {}, title), ...fields.map(x => {
       if (x.type === "note") return h("p", { class: "note" }, x.text);
+      if (x.type === "node") return x.node;
       let inp;
       if (x.type === "chips") {   // 눌러서 여러 개 고르기 → 고른 이름 배열
         const btns = x.options.map(n => h("button", { type: "button", class: "who-chip", "aria-pressed": String(x.value.includes(n)),
@@ -784,7 +921,7 @@ $("#export").addEventListener("click", async () => {
   const list = L(); if (!list) return;
   if (list.cols.length > 24) return toast("항목이 24개를 넘으면 엑셀로 받을 수 없어요.");
   try {
-    const a = h("a", { href: URL.createObjectURL(await xlsxBlob(list, list.people)), download: `${list.name.replace(/[\\/:*?"<>|]/g, "_")}.xlsx` });
+    const a = h("a", { href: URL.createObjectURL(await xlsxBlob(list, live(list))), download: `${list.name.replace(/[\\/:*?"<>|]/g, "_")}.xlsx` });
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   } catch { toast("엑셀 파일을 만들지 못했어요."); }
 });
@@ -847,7 +984,7 @@ render();
 <script>
 // ================= 놀이: 핀볼 추첨 · 주루마블 · 자리배치 (명단 사람으로) =================
 let tab = "list", off = new Set(), stopGame = null, bs = null, seatRes = null, pirate = null, ladder = null, wheel = null;   // off = 이번 놀이에서 뺀 사람
-const players = () => (L()?.people || []).filter(p => !off.has(p.id));
+const players = () => (L()?.people || []).filter(p => !p.x && !off.has(p.id));
 const colorFor = p => `hsl(${(L().people.findIndex(x => x.id === p.id) * 137.508) % 360} 72% 55%)`;
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -887,7 +1024,7 @@ function mount(title, controls, body, onWho, showWho = true) {
   const cnt = h("b", {}, `${players().length}명`);
   const who = h("details", { class: "who" },
     h("summary", {}, "참가자 ", cnt, h("small", {}, " · 눌러서 빼기/넣기")),
-    h("div", { class: "who-list" }, (L()?.people || []).map(p => h("button", {
+    h("div", { class: "who-list" }, (L()?.people || []).filter(p => !p.x).map(p => h("button", {
       type: "button", class: "who-chip", "aria-pressed": String(!off.has(p.id)),
       onclick: e => { off.has(p.id) ? off.delete(p.id) : off.add(p.id);
         e.currentTarget.setAttribute("aria-pressed", String(!off.has(p.id))); cnt.textContent = `${players().length}명`; onWho?.(); } }, p.name))));
