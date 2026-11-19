@@ -1,0 +1,75 @@
+<!-- 자체 시험: selftest.sh가 인원관리.html 사본 끝에 이 파일을 붙여 헤드리스 크롬으로 연다. 화면에 PASS/FAIL 목록이 나온다. -->
+<pre id="T" style="color:#fff;background:#000;white-space:pre-wrap;margin:0;padding:8px"></pre>
+<script>
+// 실제 브라우저에서 사본을 열어도 진짜 명단을 덮어쓰지 않도록 저장을 가짜로 바꾼다
+const fake = {};
+Storage.prototype.setItem = function (k, v) { fake[k] = v; };
+const errs = [];
+addEventListener("error", e => errs.push(e.message));
+addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
+(async () => {
+  const out = [];
+  const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); out.push((ok ? "PASS " : "FAIL ") + name + (ok ? "" : " got " + JSON.stringify(a))); };
+  const tick = () => new Promise(r => setTimeout(r, 80));
+  try {
+    const P = (id, name, v, x) => ({ id, name, v, ...(x ? { x: true } : {}) });
+    state = { cur: "l2", lists: [
+      { id: "l1", name: "10월 정모", title: "10월", cols: [], people: [P("a1", "김철수", {}), P("a2", "한지민", {}), P("a3", "오세훈", {}, true)] },
+      { id: "l2", name: "11월 정모", title: "11월 정모 인원 현황", cols: [{ id: "c1", name: "입금", kind: "check" }, { id: "c3", name: "늦참", kind: "time" }],
+        people: [P("p1", "박민수", { c1: true }), P("p2", "김철수", { c1: true, c3: "19:30" }), P("p3", "이영희", {}), P("p4", "최지우", { c1: true }, true), P("p5", "정하나", { c3: "18:10" })],
+        tally: [{ name: "이영희", game: "wheel", t: 1 }] }] };
+    render();
+    const list = L();
+    eq("TOTAL 줄(취소 제외)", [...document.querySelectorAll("#tbl tfoot td")].map(td => td.textContent), ["TOTAL", "4명", "2", "2", ""]);
+    eq("번호 칸", [...document.querySelectorAll("#tbl tbody td.num")].map(td => td.textContent), ["1", "2", "3", "취소", "4"]);
+    eq("글로 복사", listText(list).split("\n"), ["11월 정모 인원 현황", "", "1. 박민수 (입금)", "2. 김철수 (입금, 늦참 19:30)", "3. 이영희", "4. 정하나 (늦참 18:10)", "", "TOTAL 4명 · 입금 2 · 늦참 2", "취소 1명: 최지우"]);
+    eq("안 한 사람 복사", missText(list).split("\n").at(-1), "입금 ✖ 2명: 이영희, 정하나");
+    eq("회비 정산 글", feeText(list, 20000, list.cols[0], "카카오 3333-01").split("\n"), ["11월 정모 인원 현황 회비", "", "1인 20,000원", "계좌: 카카오 3333-01", "", "입금 2명 × 20,000원 = 40,000원", "미입금 2명 (40,000원): 이영희, 정하나"]);
+    eq("참석 통계", statsRows().map(r => r.name + r.n + r.last), ["김철수211월 정모", "박민수111월 정모", "이영희111월 정모", "정하나111월 정모", "한지민110월 정모"]);
+    eq("놀이 참가자(취소 제외)", players().map(p => p.name), ["박민수", "김철수", "이영희", "정하나"]);
+    const cp = JSON.parse(JSON.stringify(list));
+    sortPeople(cp, ""); eq("정렬 이름순", cp.people.map(p => p.name), ["김철수", "박민수", "이영희", "정하나", "최지우"]);
+    sortPeople(cp, "c1"); eq("정렬 입금 안 한 사람 먼저", cp.people.map(p => p.name), ["이영희", "정하나", "김철수", "박민수", "최지우"]);
+    sortPeople(cp, "c3"); eq("정렬 늦참 빠른 순", cp.people.map(p => p.name), ["정하나", "김철수", "이영희", "박민수", "최지우"]);
+    const back = gridToList(await readSheet(await xlsxBlob(list, live(list))), "x");
+    eq("엑셀 받기→불러오기(취소 제외)", back.people.map(p => p.name + JSON.stringify(Object.values(p.v))), ["박민수[true]", "김철수[true,\"19:30\"]", "이영희[]", "정하나[\"18:10\"]"]);
+    eq("표 그림 줄 수(제목+항목+4명+TOTAL)", listCanvas(list).height, (34 * 7 + 1) * 2);
+
+    // 백업 검사와 불러오기
+    const snap = JSON.stringify(state), bad = o => { const d = JSON.parse(snap); o(d); return isBackup(d); };
+    eq("백업 검사", [isBackup(JSON.parse(snap)), isBackup(null), isBackup([]), bad(d => d.lists[1].cols[0].kind = "x"), bad(d => d.lists[1].cols.push(null)), bad(d => delete d.lists[0].people[0].name)], [true, false, false, false, false, false]);
+    const d = $("#dlg"), submit = () => d.querySelector("form").requestSubmit();
+    const feed = async text => { const dt = new DataTransfer(); dt.items.add(new File([text], "b.json")); $("#restoreFile").files = dt.files; $("#restoreFile").dispatchEvent(new Event("change")); await tick(); };
+    state = { lists: [], cur: null }; render();
+    await feed("{깨진 파일"); eq("깨진 백업은 거부", [d.open, state.lists.length], [false, 0]);
+    await feed(snap); eq("백업 확인 창", d.open, true); submit(); await tick();
+    eq("백업 불러오기 = 원본과 같음", JSON.stringify(state), snap);
+    eq("백업 불러오기 저장됨", fake["nasul-inwon"], snap);
+
+    // 대화상자들
+    const cur = L();
+    document.querySelector("#tbl .who").click(); await tick();
+    d.querySelector("#f_name").value = "박민수2"; d.querySelector("#f_x").checked = true; submit(); await tick();
+    eq("사람 수정(이름·취소)", [cur.people[0].name, cur.people[0].x], ["박민수2", true]);
+    document.querySelectorAll("#tbl .who")[2].click(); await tick(); d.querySelector("#f_name").value = "이영희B"; submit(); await tick();
+    eq("이름 바꾸면 벌칙 기록도", cur.tally[0].name, "이영희B");
+    document.querySelectorAll("#tbl .who")[2].click(); await tick(); d.querySelector("#f_name").value = "김 철수"; submit(); await tick();
+    eq("같은 이름으로는 못 바꿈", [d.open, cur.people[2].name], [true, "이영희B"]); d.close(); await tick();
+    $("#sortBtn").click(); await tick(); submit(); await tick();
+    eq("정렬 적용(취소는 맨 아래)", cur.people.map(p => p.name), ["김철수", "이영희B", "정하나", "박민수2", "최지우"]);
+    $("#fromOld").click(); await tick(); eq("지난 명단 후보", [...d.querySelectorAll(".who-chip")].map(b => b.textContent), ["한지민", "오세훈"]);
+    d.querySelector(".who-chip").click(); submit(); await tick(); eq("지난 명단 추가", cur.people.at(-1).name, "한지민");
+    $("#statsBtn").click(); await tick(); eq("통계 창 줄 수", d.querySelectorAll("tbody tr").length, 4); d.close(); await tick();
+    $("#fee").click(); await tick(); eq("회비 창 기본 항목", d.querySelector("#f_col").value, "c1");
+    d.querySelector("#f_amt").value = "15000"; d.querySelector("#f_acct").value = "국민 123-45"; submit(); await tick();
+    eq("회비 저장", [cur.fee, state.acct], [{ amt: 15000, col: "c1", acct: "국민 123-45" }, "국민 123-45"]);
+    eq("회비 결과 창", d.querySelector(".note")?.textContent.split("\n").slice(-2), ["입금 1명 × 15,000원 = 15,000원", "미입금 3명 (45,000원): 이영희B, 정하나, 한지민"]); d.close();
+    for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
+    eq("놀이 탭 10개 열림", document.querySelectorAll("#tabs button").length, 10);
+  } catch (e) { out.push("ERR " + e.stack); }
+  await tick();
+  document.querySelector("main").hidden = true;
+  const fails = out.filter(x => !x.startsWith("PASS")).length + errs.length;
+  document.getElementById("T").textContent = (fails ? `실패 ${fails}건` : `모두 통과 (${out.length}건)`) + "\n" + out.join("\n") + "\n스크립트 오류=" + JSON.stringify(errs);
+})();
+</script>

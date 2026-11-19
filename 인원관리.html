@@ -754,7 +754,8 @@ $("#backup").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 });
 const isBackup = d => Array.isArray(d?.lists) && d.lists.every(l => l?.id && typeof l.name === "string" && Array.isArray(l.people) && Array.isArray(l.cols)
-  && l.people.every(p => p?.id && typeof p.name === "string"));
+  && l.people.every(p => p?.id && typeof p.name === "string")
+  && l.cols.every(c => c?.id && typeof c.name === "string" && ["check", "time"].includes(c.kind)));   // 깨진 항목이 저장되면 열 때마다 화면이 멈춤
 $("#restore").addEventListener("click", () => $("#restoreFile").click());
 $("#restoreFile").addEventListener("change", async e => {
   const file = e.target.files[0]; e.target.value = ""; if (!file) return;
@@ -769,6 +770,7 @@ $("#restoreFile").addEventListener("change", async e => {
   if (!state.lists.some(l => l.id === state.cur)) state.cur = state.lists[0]?.id ?? null;
   hits = new Set();
   save();
+  $("#pick").dispatchEvent(new Event("change"));   // 명단을 바꿨을 때와 같은 길로: 열려 있던 놀이도 새 명단으로 다시 시작
   toast(`명단 ${state.lists.length}개를 불러왔어요.`);
 });
 
