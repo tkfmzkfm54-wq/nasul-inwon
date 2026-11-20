@@ -514,8 +514,8 @@ function say(t, kind = "") { const m = $("#msg"); m.textContent = t; m.className
 // 서버에는 app_state 테이블 한 줄(id = "main")에 명단 전체를 jsonb로 둠. 이 폰에만 둘 값(LOCAL_ONLY_KEYS)은 안 올림.
 // 두 폰이 동시에 고쳐도 둘 다 살리도록, 마지막으로 서버와 맞춘 내용(base)을 기준으로 양쪽 변경을 합침(MergeValue).
 // ponytail: 명단 전체를 한 줄로 주고받음. 명단이 수백 개로 커져 느려지면 명단별 줄로 나눌 것
-const CLOUD_URL = "";   // Project URL (예: https://abcd1234.supabase.co)
-const CLOUD_KEY = "";   // Publishable key (sb_publishable_...). Secret key(sb_secret_...)는 절대 넣지 말 것
+const CLOUD_URL = "https://ukpgtzvmwexnukcsyinw.supabase.co";   // Project URL (Supabase 프로젝트 '나는술로', 서울)
+const CLOUD_KEY = "sb_publishable_tuTu3CVS4f8QQoTQMVKonA_1kS4sIuP";   // Publishable key (sb_publishable_...). Secret key(sb_secret_...)는 절대 넣지 말 것
 const CLOUD_ROW = "main";   // app_state 테이블에서 쓰는 줄 id
 const CLOUD_META_KEY = "nasul-inwon-cloud";   // localStorage: 마지막으로 맞춘 서버 판(rev)·내용. 다시 열어도 합치기 기준이 됨
 const CLOUD_POLL_MS = 5000;   // 화면이 보이는 동안 다른 폰 변경을 확인하는 주기(ms)

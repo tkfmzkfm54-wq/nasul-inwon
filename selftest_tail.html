@@ -4,6 +4,9 @@
 // 실제 브라우저에서 사본을 열어도 진짜 명단을 덮어쓰지 않도록 저장을 가짜로 바꾼다
 const fake = {};
 Storage.prototype.setItem = function (k, v) { fake[k] = v; };
+// CLOUD_URL에 실제 서버가 들어 있어도 시험 중엔 진짜 서버에 붙지 않게, 페이지 시작 때의 연결을 막고 가짜 서버로만 연다
+const fnStartCloudAsync = StartCloudAsync;
+StartCloudAsync = async () => {};
 const errs = [];
 addEventListener("error", e => errs.push(e.message));
 addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
@@ -221,7 +224,7 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       lists: [{ id: "l1", name: "1월", title: "1월", cols: [{ id: "c1", name: "입금", kind: "check" }], people: [P("a", "가", {}), P("b", "나", {})] }] };
     save();
     eq("클라우드 안 켜면 저장해도 요청 없음", stServer.nCalls, 0);
-    await StartCloudAsync("https://fake.supabase.co", "sb_publishable_x");
+    await fnStartCloudAsync("https://fake.supabase.co", "sb_publishable_x");
     clearInterval(g_stCloud.nTimer);   // 시험 중엔 5초 확인을 끄고 직접 맞춤
     await tick();
     eq("켜면 버튼 보임·로그인 필요", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, stServer.nCalls], [false, "☁ 로그인", 0]);
