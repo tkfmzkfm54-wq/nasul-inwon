@@ -67,6 +67,10 @@ create table if not exists public.comments (
   is_master boolean not null default false,
   created_at timestamptz not null default now()
 );
+-- 닉네임에 👑·마스터 금지: 앱은 진짜 마스터 댓글에만 "👑 닉네임"을 붙이므로, 이름으로 흉내 못 내게 서버도 막는다
+alter table public.comments drop constraint if exists comments_nick_reserved;
+alter table public.comments add constraint comments_nick_reserved
+  check (position('👑' in nick) = 0 and position('마스터' in nick) = 0);
 create index if not exists comments_room_id on public.comments (room, id desc);
 create index if not exists comments_created on public.comments (created_at);
 alter table public.comments enable row level security;
