@@ -17,6 +17,9 @@ const errs = [];
 addEventListener("error", e => errs.push(e.message));
 addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
 (async () => {
+  // 헤드리스 가상 시간은 기다릴 타이머가 없으면 남은 시간을 한꺼번에 넘겨 시험 도중 그림을 찍음(결과 대신 앱 화면).
+  // 엑셀 압축 같은 타이머 아닌 기다림 동안에도 시간이 조금씩만 가게 끝날 때까지 빈 타이머를 둠
+  const nKeepAlive = setInterval(() => {}, 20);
   const out = [];
   const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); out.push((ok ? "PASS " : "FAIL ") + name + (ok ? "" : " got " + JSON.stringify(a))); };
   const tick = () => new Promise(r => setTimeout(r, 80));
@@ -671,6 +674,7 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("닉네임이 있으면 안 물음", d.open, false);
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
+  clearInterval(nKeepAlive);
   document.querySelector("main").hidden = true;
   const fails = out.filter(x => !x.startsWith("PASS")).length + errs.length;
   const arrSorted = [...out.filter(strLine => !strLine.startsWith("PASS")), ...out.filter(strLine => strLine.startsWith("PASS"))];   // 실패를 맨 위에 (결과 그림 첫 화면에 보이게)
