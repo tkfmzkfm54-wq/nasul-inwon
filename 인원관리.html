@@ -857,8 +857,14 @@ async function StartCloudAsync(strUrl, strKey) {
   SetCloudStatus("login");
   // 이 콜백 안에서 다른 Supabase 호출을 기다리면 멈출 수 있어(라이브러리 안내) 표시만 바꾸고 맞추기는 따로 돌림
   // 처음 열 때(INITIAL_SESSION)도 불림: 로그인 안 했으면 보기 전용으로 서버 명단을 받아 옴
+  // 남아 있는 로그인이 마스터 계정이 아니면(예전 계정 등) 마스터로 치지 않고 이 폰에서 로그아웃시킴
   g_stCloud.pClient.auth.onAuthStateChange((strEvent, stSession) => {
-    g_stCloud.bLogin = !!stSession;
+    g_stCloud.bLogin = stSession?.user?.email === CLOUD_MASTER_EMAIL;
+    if (stSession && !g_stCloud.bLogin) {
+      setTimeout(() => g_stCloud.pClient.auth.signOut({ scope: "local" }), 0);
+    } else if (g_stCloud.bLogin) {
+      setTimeout(CheckMasterAsync, 0);
+    }
     $("#saveWhere").textContent = g_stCloud.bLogin ? "마스터로 로그인: 고친 내용이 서버에 저장돼 모두에게 보여요."
       : "서버 명단을 보는 중이에요(보기 전용). 고치려면 ☁ 로그인에서 마스터 비밀번호를 넣어 주세요.";
     $("#masterBadge").hidden = !g_stCloud.bLogin;
@@ -884,6 +890,17 @@ async function StartCloudAsync(strUrl, strKey) {
       setTimeout(SyncCloudAsync, 0);
     }
   });
+}
+
+// 서버에서 마스터 등록(editors)을 확인. 지웠다 다시 만든 계정의 예전 로그인처럼 주소는 같아도 등록이 없으면 로그아웃
+// 인터넷이 끊겨 확인을 못 한 것만은 그대로 둠 (마스터가 끊긴 동안 고친 것은 연결되면 올라감)
+async function CheckMasterAsync() {
+  const { data: stRow, error: errCheck } = await g_stCloud.pClient.from("editors").select("user_id").maybeSingle();
+  if (stRow || (errCheck && /fetch|network/i.test(errCheck.message || ""))) {
+    return;
+  }
+  await g_stCloud.pClient.auth.signOut({ scope: "local" });
+  toast("마스터 확인이 안 돼서 로그아웃했어요. 다시 로그인해 주세요.");
 }
 
 async function LoginCloudAsync() {

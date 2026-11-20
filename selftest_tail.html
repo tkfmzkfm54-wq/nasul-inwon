@@ -117,6 +117,9 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
         if (stServer.bOffline) {
           return { data: null, error: { message: "Failed to fetch" } };
         }
+        if (stServer.bNotEditor && stQuery.strOp !== "select") {   // 등록 안 된 계정: 서버 권한(RLS)이 막음
+          return { data: null, error: { code: "42501", message: "permission denied" } };
+        }
         if (stServer.fnBeforeUpdate && stQuery.strOp === "update") {
           const fnHook = stServer.fnBeforeUpdate;
           stServer.fnBeforeUpdate = null;
@@ -179,8 +182,18 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       return stChain;
     };
     let fnAuthChanged = null;
+    const CreateFakeEditors = () => {   // editors 표: 마스터 등록 확인용 (bNotEditor면 등록 없음)
+      const stChain = {
+        select() { return stChain; },
+        maybeSingle() { return stChain; },
+        then(fnOk, fnFail) {
+          return new Promise(fnResolve => setTimeout(fnResolve, 5)).then(() => ({ data: stServer.bNotEditor ? null : { user_id: "u1" }, error: null })).then(fnOk, fnFail);
+        },
+      };
+      return stChain;
+    };
     const stFakeClient = {
-      from: CreateFakeQuery,
+      from: strTable => strTable === "editors" ? CreateFakeEditors() : CreateFakeQuery(),
       auth: {
         onAuthStateChange(fnCallback) {
           fnAuthChanged = fnCallback;
@@ -245,6 +258,20 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     submit();
     await WaitSync();
     eq("틀린 비밀번호", [g_stCloud.bLogin, $("#cloudBtn").textContent, stServer.stRow], [false, "☁ 로그인", null]);
+    fnAuthChanged("INITIAL_SESSION", { user: { email: "old@gmail.com" } });   // 예전 계정 로그인이 폰에 남아 있음
+    await WaitSync();
+    eq("예전 계정 로그인이 남아 있어도 마스터 아님·로그아웃시킴", [g_stCloud.bLogin, $("#masterBadge").hidden, stServer.stSignOutArg, stServer.stRow], [false, true, { scope: "local" }, null]);
+    stServer.bNotEditor = true;   // 마스터 주소지만 서버 등록이 없음 (지웠다 다시 만든 계정의 예전 로그인 등)
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector("#f_pw").value = "pw";
+    submit();
+    await WaitSync();
+    await WaitSync();
+    eq("마스터 등록이 없으면 로그아웃", [g_stCloud.bLogin, $("#masterBadge").hidden, $("#cloudBtn").textContent, stServer.stRow, $("#toast").textContent.startsWith("마스터 확인이 안 돼서")],
+      [false, true, "☁ 로그인", null, true]);
+    stServer.bNotEditor = false;
+    stServer.stSignOutArg = null;
     $("#cloudBtn").click();
     await tick();
     d.querySelector("#f_pw").value = "pw";
