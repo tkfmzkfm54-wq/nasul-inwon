@@ -91,7 +91,8 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       typeof pReal.from("app_state").insert,
       typeof pReal.auth.signInWithPassword,
       typeof pReal.auth.signOut,
-      typeof pReal.auth.onAuthStateChange], Array(7).fill("function"));
+      typeof pReal.auth.onAuthStateChange,
+      typeof pReal.auth.updateUser], Array(8).fill("function"));
 
     // 합치기 단위 시험
     const GetIds = arrItems => arrItems.map(stItem => stItem.id).join("");
@@ -197,6 +198,10 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
           setTimeout(() => fnAuthChanged("SIGNED_OUT", null));
           return { error: null };
         },
+        async updateUser(stAttr) {
+          stServer.strNewPw = stAttr.password;
+          return { data: {}, error: null };
+        },
       },
     };
     g_fnCreateClient = () => stFakeClient;
@@ -226,19 +231,19 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("클라우드 안 켜면 저장해도 요청 없음", stServer.nCalls, 0);
     await fnStartCloudAsync("https://fake.supabase.co", "sb_publishable_x");
     clearInterval(g_stCloud.nTimer);   // 시험 중엔 5초 확인을 끄고 직접 맞춤
-    await tick();
-    eq("켜면 버튼 보임·로그인 필요", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, stServer.nCalls], [false, "☁ 로그인", 0]);
+    await WaitSync();
+    eq("켜면 버튼 보임·보기 전용: 서버 확인만 하고 안 만듦", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, stServer.stRow, $("#saveWhere").textContent.startsWith("서버 명단을 보는 중")],
+      [false, "☁ 로그인", null, true]);
 
     $("#cloudBtn").click();
     await tick();
-    d.querySelector("#f_email").value = "a@b.c";
+    eq("로그인 창은 비밀번호만", [!!d.querySelector("#f_email"), !!d.querySelector("#f_pw")], [false, true]);
     d.querySelector("#f_pw").value = "틀림";
     submit();
     await WaitSync();
     eq("틀린 비밀번호", [g_stCloud.bLogin, $("#cloudBtn").textContent, stServer.stRow], [false, "☁ 로그인", null]);
     $("#cloudBtn").click();
     await tick();
-    d.querySelector("#f_email").value = "a@b.c";
     d.querySelector("#f_pw").value = "pw";
     submit();
     await WaitSync();
@@ -337,9 +342,50 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
 
     $("#cloudBtn").click();
     await tick();
+    d.querySelector("#f_newpw").value = "12345";
+    submit();
+    await tick();
+    eq("새 비밀번호 6자 미만은 거부", [d.open, stServer.strNewPw], [true, undefined]);
+    d.querySelector("#f_newpw").value = "newpw1";
+    submit();
+    await WaitSync();
+    eq("앱에서 마스터 비밀번호 바꾸기", [d.open, stServer.strNewPw, $("#toast").textContent.startsWith("마스터 비밀번호를 바꿨어요")], [false, "newpw1", true]);
+
+    $("#cloudBtn").click();
+    await tick();
     d.querySelector(".btn.left").click();
     await WaitSync();
     eq("로그아웃은 이 폰만", [stServer.stSignOutArg, g_stCloud.bLogin, $("#cloudBtn").textContent, state.lists.length], [{ scope: "local" }, false, "☁ 로그인", 3]);
+
+    // 보기 전용 (로그인 안 함): 받기만 하고 올리지 않음
+    SetByOtherPhone(stData => stData.lists[0].people.push({ id: "v1", name: "새사람", v: {} }));
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("보기 전용: 마스터가 고친 것 받음", [FindList("l1").people.at(-1).name, $("#cloudBtn").textContent], ["새사람", "☁ 로그인"]);
+    const nRevView = stServer.stRow.rev;
+    FindList("l1").title = "보는 사람이 고침";
+    save();
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("보기 전용: 고쳐도 서버에 안 올라감", [stServer.stRow.rev, ServerList().title, FindList("l1").title, $("#cloudBtn").textContent],
+      [nRevView, "1월 정모", "보는 사람이 고침", "☁ 로그인"]);
+
+    // 새 폰에서 로그인 전에 백업을 불러옴 → 보기 전용으로 받은 뒤 로그인하면 이 폰에만 있던 명단도 올라감
+    g_stCloud.stBase = null;
+    g_stCloud.nRev = 0;
+    state.lists.push({ id: "b1", name: "백업 명단", title: "백업", cols: [], people: [P("q", "큐", {})] });
+    save();
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("새 폰 보기 전용: 서버 명단 받고 내 명단도 남음, 서버는 그대로",
+      [state.lists.map(stList => stList.id).includes("b1"), stServer.stRow.data.lists.some(stList => stList.id === "b1"), stServer.stRow.rev], [true, false, nRevView]);
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector("#f_pw").value = "pw";
+    submit();
+    await WaitSync();
+    await WaitSync();
+    eq("로그인하면 이 폰에만 있던 명단이 올라감", [stServer.stRow.data.lists.some(stList => stList.id === "b1"), $("#cloudBtn").textContent], [true, "☁ 저장됨"]);
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
   document.querySelector("main").hidden = true;

@@ -511,11 +511,14 @@ function say(t, kind = "") { const m = $("#msg"); m.textContent = t; m.className
 
 // ---- 클라우드 동기화 (Supabase): 주소·키를 넣으면 운영진 여러 폰이 같은 명단을 같이 씀 ----
 // 비워 두면 지금처럼 이 브라우저에만 저장. 서버 준비 순서는 같은 폴더의 클라우드_설정.sql 머리 주석.
+// 로그인 안 한 사람(보기 전용): 서버 명단을 받아 보기만 함. 고친 내용은 그 폰에만 남고 서버에는 안 올라감.
+// 마스터(비밀번호로 로그인): 고친 내용이 서버에 올라가 모두에게 보임.
 // 서버에는 app_state 테이블 한 줄(id = "main")에 명단 전체를 jsonb로 둠. 이 폰에만 둘 값(LOCAL_ONLY_KEYS)은 안 올림.
 // 두 폰이 동시에 고쳐도 둘 다 살리도록, 마지막으로 서버와 맞춘 내용(base)을 기준으로 양쪽 변경을 합침(MergeValue).
 // ponytail: 명단 전체를 한 줄로 주고받음. 명단이 수백 개로 커져 느려지면 명단별 줄로 나눌 것
 const CLOUD_URL = "https://ukpgtzvmwexnukcsyinw.supabase.co";   // Project URL (Supabase 프로젝트 '나는술로', 서울)
 const CLOUD_KEY = "sb_publishable_tuTu3CVS4f8QQoTQMVKonA_1kS4sIuP";   // Publishable key (sb_publishable_...). Secret key(sb_secret_...)는 절대 넣지 말 것
+const CLOUD_MASTER_EMAIL = "nasul.master@example.com";   // 마스터 계정 주소 (로그인 창에는 비밀번호만 받음). 페이지에 공개되므로 개인 메일 쓰지 말 것
 const CLOUD_ROW = "main";   // app_state 테이블에서 쓰는 줄 id
 const CLOUD_META_KEY = "nasul-inwon-cloud";   // localStorage: 마지막으로 맞춘 서버 판(rev)·내용. 다시 열어도 합치기 기준이 됨
 const CLOUD_POLL_MS = 5000;   // 화면이 보이는 동안 다른 폰 변경을 확인하는 주기(ms)
@@ -526,8 +529,7 @@ let g_fnCreateClient = (strUrl, strKey) => supabase.createClient(strUrl, strKey)
 const g_stCloud = {
   pClient: null,   // Supabase 클라이언트. null = 클라우드 안 씀
   strUrl: "",
-  bLogin: false,
-  strEmail: "",
+  bLogin: false,   // 마스터로 로그인함. false = 보기 전용 (받기만 하고 안 올림)
   bBusy: false,   // 맞추는 중 (한 번에 하나만)
   bAgain: false,   // 맞추는 중에 새 변경이 생김 → 끝나고 한 번 더
   bPending: false,   // 대화상자가 열려 있어 서버 내용 반영을 미룸
@@ -722,8 +724,11 @@ async function SyncOnceAsync() {
   if (errRev) {
     throw errRev;
   }
-  // 2. 아직 서버에 없음(첫 연결) → 이 폰 명단을 올림
+  // 2. 아직 서버에 없음(첫 연결) → 이 폰 명단을 올림 (보기 전용이면 볼 게 없으니 그냥 끝)
   if (!stRow) {
+    if (!g_stCloud.bLogin) {
+      return;
+    }
     const stShared = GetShared(state);
     const { error: errAdd } = await pClient.from("app_state").insert({ id: CLOUD_ROW, data: stShared, rev: 1 });
     if (errAdd?.code === "23505") {
@@ -755,9 +760,9 @@ async function SyncOnceAsync() {
       return;   // 대화상자 열림: 닫힐 때 다시 맞춤
     }
   }
-  // 4. 내 변경이 있으면, 서버 판이 그대로일 때만 올림 (그 사이 다른 폰이 올렸으면 0줄 → 다시 1부터)
+  // 4. 내 변경이 있으면, 서버 판이 그대로일 때만 올림 (그 사이 다른 폰이 올렸으면 0줄 → 다시 1부터). 보기 전용은 안 올림
   const stShared = GetShared(state);
-  if (IsSame(stShared, g_stCloud.stBase)) {
+  if (!g_stCloud.bLogin || IsSame(stShared, g_stCloud.stBase)) {
     return;
   }
   const nNext = g_stCloud.nRev + 1;
@@ -779,8 +784,9 @@ async function SyncOnceAsync() {
 }
 
 // 서버와 맞추기. 여러 곳에서 불려도 한 번에 하나만 돌고, 도는 중에 생긴 변경은 끝나고 이어서 올림
+// 로그인 안 했으면 받기만 하고, 버튼은 계속 "☁ 로그인" (오류 내용은 버튼에 마우스를 올리면 보임)
 async function SyncCloudAsync() {
-  if (!g_stCloud.pClient || !g_stCloud.bLogin) {
+  if (!g_stCloud.pClient) {
     return;
   }
   if (g_stCloud.bBusy) {
@@ -788,7 +794,7 @@ async function SyncCloudAsync() {
     return;
   }
   g_stCloud.bBusy = true;
-  if (!IsSame(GetShared(state), g_stCloud.stBase)) {
+  if (g_stCloud.bLogin && !IsSame(GetShared(state), g_stCloud.stBase)) {
     SetCloudStatus("busy");
   }
   try {
@@ -798,13 +804,15 @@ async function SyncCloudAsync() {
       nTry++;
       await SyncOnceAsync();
     } while (g_stCloud.bAgain && nTry < CLOUD_MAX_TRY);
-    if (g_stCloud.bPending) {
+    if (!g_stCloud.bLogin) {
+      SetCloudStatus("login");
+    } else if (g_stCloud.bPending) {
       SetCloudStatus("wait");
     } else {
       SetCloudStatus(IsSame(GetShared(state), g_stCloud.stBase) ? "ok" : "busy");
     }
   } catch (err) {
-    SetCloudStatus("error", err?.message || String(err));
+    SetCloudStatus(g_stCloud.bLogin ? "error" : "login", err?.message || String(err));
   } finally {
     g_stCloud.bBusy = false;
   }
@@ -828,15 +836,15 @@ async function StartCloudAsync(strUrl, strKey) {
   g_stCloud.pClient = g_fnCreateClient(strUrl, strKey);
   LoadCloudMeta(strUrl);
   $("#cloudBtn").hidden = false;
-  $("#saveWhere").textContent = "기록은 클라우드에 저장돼 운영진 폰끼리 같이 써요.";
   SetCloudStatus("login");
   // 이 콜백 안에서 다른 Supabase 호출을 기다리면 멈출 수 있어(라이브러리 안내) 표시만 바꾸고 맞추기는 따로 돌림
+  // 처음 열 때(INITIAL_SESSION)도 불림: 로그인 안 했으면 보기 전용으로 서버 명단을 받아 옴
   g_stCloud.pClient.auth.onAuthStateChange((strEvent, stSession) => {
     g_stCloud.bLogin = !!stSession;
-    g_stCloud.strEmail = stSession?.user?.email || "";
+    $("#saveWhere").textContent = g_stCloud.bLogin ? "마스터로 로그인: 고친 내용이 서버에 저장돼 모두에게 보여요."
+      : "서버 명단을 보는 중이에요. 여기서 고친 건 이 폰에만 남아요. (마스터는 ☁ 로그인)";
     if (!g_stCloud.bLogin) {
       SetCloudStatus("login");
-      return;
     }
     setTimeout(SyncCloudAsync, 0);
   });
@@ -859,19 +867,18 @@ async function StartCloudAsync(strUrl, strKey) {
 }
 
 async function LoginCloudAsync() {
-  const stInput = await ask({ title: "☁ 클라우드 로그인", ok: "로그인",
-    fields: [{ type: "note", text: "운영진 계정으로 로그인하면 명단을 여러 폰에서 같이 써요." },
-             { id: "email", type: "email", label: "이메일" },
+  const stInput = await ask({ title: "☁ 마스터 로그인", ok: "로그인",
+    fields: [{ type: "note", text: "마스터 비밀번호를 넣으면 명단을 고쳐서 모두에게 보이게 올릴 수 있어요." },
              { id: "pw", type: "password", label: "비밀번호" }],
-    validate: stValue => stValue.email && stValue.pw ? null : "이메일과 비밀번호를 넣어 주세요." });
+    validate: stValue => stValue.pw ? null : "비밀번호를 넣어 주세요." });
   if (!stInput) {
     return;
   }
   SetCloudStatus("busy");
-  const { error: errLogin } = await g_stCloud.pClient.auth.signInWithPassword({ email: stInput.email, password: stInput.pw });
+  const { error: errLogin } = await g_stCloud.pClient.auth.signInWithPassword({ email: CLOUD_MASTER_EMAIL, password: stInput.pw });
   if (errLogin) {
     SetCloudStatus("login");
-    toast("로그인하지 못했어요. 이메일·비밀번호를 확인해 주세요.");
+    toast("로그인하지 못했어요. 비밀번호를 확인해 주세요.");
   }
   // 성공하면 onAuthStateChange(SIGNED_IN)가 맞추기를 시작함
 }
@@ -881,11 +888,17 @@ $("#cloudBtn").addEventListener("click", async () => {
     return LoginCloudAsync();
   }
   const stInput = await ask({ title: "☁ 클라우드", ok: "지금 맞추기", extra: "로그아웃",
-    fields: [{ type: "note", text: `로그인: ${g_stCloud.strEmail}\n상태: ${CLOUD_STATUS_TEXT[g_stCloud.strState]}\n서버 판 번호: ${g_stCloud.nRev}` }] });
+    fields: [{ type: "note", text: `로그인: 마스터\n상태: ${CLOUD_STATUS_TEXT[g_stCloud.strState]}\n서버 판 번호: ${g_stCloud.nRev}` },
+             { id: "newpw", type: "password", label: "새 비밀번호 (바꿀 때만 넣기, 6자 이상)" }],
+    validate: stValue => !stValue.newpw || stValue.newpw.length >= 6 ? null : "새 비밀번호는 6자 이상으로 넣어 주세요." });
   if (!stInput) {
     return;
   }
   if (!stInput.extra) {
+    if (stInput.newpw) {
+      const { error: errPw } = await g_stCloud.pClient.auth.updateUser({ password: stInput.newpw });
+      toast(errPw ? `비밀번호를 바꾸지 못했어요: ${errPw.message}` : "마스터 비밀번호를 바꿨어요. 다른 폰도 다음 로그인부터 새 비밀번호예요.");
+    }
     return SyncCloudAsync();
   }
   await SyncCloudAsync();   // 못 올린 변경이 있으면 먼저 올림
