@@ -231,6 +231,16 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("상식 퀴즈 고르기: 카테고리·난이도 거르기, 전체 = 모두",
       [CollectQuizPool("✍ 맞춤법", "상").every(stQ => stQ.strCat === "✍ 맞춤법" && stQ.strLv === "상"), CollectQuizPool("", "하").every(stQ => stQ.strLv === "하"),
         Object.keys(QUIZ_QS).reduce((nSum, strC) => nSum + CollectQuizPool(strC, "").length, 0) === arrAllQz.length], [true, true, true]);
+    const setUsedPq = new Set();
+    const arrPickPq = Array.from({ length: 600 }, () => PickQuiz("", "", setUsedPq));
+    const arrBucketPq = CollectQuizPool("🌏 세계 수도", "하");
+    const setOncePq = new Set();
+    const arrOncePq = arrBucketPq.map(() => PickQuiz("🌏 세계 수도", "하", setOncePq).strQ);
+    const setOtherPq = new Set(["🔬 과학|물의 화학식은?", ...arrBucketPq.map(stQ => `${stQ.strCat}|${stQ.strQ}`)]);
+    const stAgainPq = PickQuiz("🌏 세계 수도", "하", setOtherPq);
+    eq("상식 퀴즈 랜덤: 카테고리·난이도 고루 나옴, 고른 묶음은 다 나올 때까지 안 겹침, 다 쓰면 그 묶음만 다시",
+      [new Set(arrPickPq.map(stQ => stQ.strCat)).size, new Set(arrPickPq.map(stQ => stQ.strLv)).size, new Set(arrOncePq).size, stAgainPq.strCat, setOtherPq.has("🔬 과학|물의 화학식은?"), setOtherPq.size],
+      [Object.keys(QUIZ_QS).length, 3, arrBucketPq.length, "🌏 세계 수도", true, 2]);
     showTab("quiz");
     await tick();
     const elCardQz = () => document.querySelector("#view-game .liar-card");
