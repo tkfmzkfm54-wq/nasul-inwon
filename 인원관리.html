@@ -4352,8 +4352,7 @@ const g_setQuizUsed = new Set();   // 나온 상식 퀴즈 문제 ("카테고리
 const GetQuizKey = stQ => `${stQ.strCat}|${stQ.strQ}`;
 
 /**
- * 문제 하나 뽑기: 고른 범위에서 아직 안 나온 문제만 후보. 후보 중 카테고리 → 난이도 → 문제 순으로 고르게 무작위
- * (문제 수가 많은 카테고리만 자주 나오지 않게). 한 묶음을 다 풀면 문제가 남은 다른 카테고리·난이도에서 나옴
+ * 문제 하나 뽑기: 고른 카테고리·난이도에서 아직 안 나온 문제 중 무작위 (순서만 섞임)
  * @param setUsed 이미 나온 문제. 고른 범위를 전부 풀었을 때만 그 범위 기록을 비우고 처음부터 (다른 범위 기록은 그대로)
  */
 function PickQuiz(strCat, strLv, setUsed) {
@@ -4363,20 +4362,15 @@ function PickQuiz(strCat, strLv, setUsed) {
     arrAll.forEach(stQ => setUsed.delete(GetQuizKey(stQ)));
     arrLeft = arrAll;
   }
-  const PickOne = arrItems => arrItems[Math.floor(Math.random() * arrItems.length)];
-  const strC = PickOne([...new Set(arrLeft.map(stQ => stQ.strCat))]);
-  const arrInCat = arrLeft.filter(stQ => stQ.strCat === strC);
-  const strL = PickOne([...new Set(arrInCat.map(stQ => stQ.strLv))]);
-  const stPick = PickOne(arrInCat.filter(stQ => stQ.strLv === strL));
+  const stPick = arrLeft[Math.floor(Math.random() * arrLeft.length)];
   setUsed.add(GetQuizKey(stPick));
   return stPick;
 }
 
 GAMES.quiz = () => {
-  const selCat = h("select", { class: "sel", "aria-label": "카테고리" },
-    h("option", { value: "" }, "🎲 카테고리 랜덤"), Object.keys(QUIZ_QS).map(strC => h("option", { value: strC }, strC)));
-  const selLv = h("select", { class: "sel", "aria-label": "난이도" },
-    h("option", { value: "" }, "🎲 난이도 랜덤"), QUIZ_LEVELS.map(strL => h("option", { value: strL }, `난이도 ${strL}`)));
+  // 카테고리·난이도는 늘 직접 고름 (사용자 결정 11-20). 그 안에서 문제 순서만 무작위
+  const selCat = h("select", { class: "sel", "aria-label": "카테고리" }, Object.keys(QUIZ_QS).map(strC => h("option", { value: strC }, strC)));
+  const selLv = h("select", { class: "sel", "aria-label": "난이도" }, QUIZ_LEVELS.map(strL => h("option", { value: strL }, `난이도 ${strL}`)));
   const selSec = h("select", { class: "sel", "aria-label": "제한 시간" },
     [[0, "시간 제한 없음"], [10, "10초"], [20, "20초"], [30, "30초"]].map(([nSec, strText]) => h("option", { value: nSec }, strText)));
   selSec.value = "20";
@@ -4470,7 +4464,7 @@ GAMES.quiz = () => {
     if (arrPs.length < 2) {
       elCard.replaceChildren(h("p", { class: "note" }, "참가자가 2명 이상이어야 해요"));
     } else if (stQz.strStep === "ready") {
-      elCard.replaceChildren(h("small", {}, `${selCat.value || "🎲 카테고리 랜덤"} · ${selLv.value ? `난이도 ${selLv.value}` : "🎲 난이도 랜덤"}`),
+      elCard.replaceChildren(h("small", {}, `${selCat.value} · 난이도 ${selLv.value}`),
         h("strong", { style: `color:${stNow.c}` }, `${stNow.name} 차례`),
         h("small", {}, `${strSec}1~4번 중 정답 고르기 · 틀리면 벌칙`),
         h("button", { type: "button", class: "btn primary big", onclick: Ask }, "▶ 문제 열기"));
