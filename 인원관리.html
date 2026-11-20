@@ -1931,8 +1931,11 @@ GAMES.race = () => {
 // ---- 벌칙 기록: 놀이 당첨 → 명단별로 쌓임 (팀이면 팀원 모두) ----
 function record(p, game) {
   const list = L(); if (!list || !p) return;
-  (list.tally ??= []).push(...(p.members || [p.name]).map(name => ({ name, game, t: Date.now() })));
-  save(); surpriseHook();
+  if (!IsViewOnly()) {   // 보기 전용은 놀이만 하고 기록은 안 남김 (벌칙 기록은 마스터가 올린 명단에만 쌓임)
+    (list.tally ??= []).push(...(p.members || [p.name]).map(name => ({ name, game, t: Date.now() })));
+    save();
+  }
+  surpriseHook();
 }
 
 // ---- 돌림판: 이름(또는 벌칙)을 돌려서 하나 뽑기. 당첨자 빼고 계속 돌릴 수 있음 ----

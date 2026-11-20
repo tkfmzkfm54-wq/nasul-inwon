@@ -418,6 +418,17 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     await WaitSync();
     eq("보기 전용: 고치면 되돌림·서버 그대로", [FindList("l1").title, !!FindList("v9"), state.cur, stServer.stRow.rev, ServerList().title, $("#toast").textContent.startsWith("보기 전용이에요")],
       ["1월 정모", false, "l1", nRevView, "1월 정모", true]);
+    $("#toast").textContent = "";
+    const nTallyView = FindList("l1").tally.length;
+    showTab("cannon");
+    await tick();
+    document.querySelector("#view-game .btn.primary").click();
+    await new Promise(r => setTimeout(r, 6000));
+    eq("보기 전용: 놀이는 됨 (결과 나옴·기록 안 남김·안내 안 뜸)",
+      [document.querySelector("#view-game .lad-result").textContent.includes("맞은"), FindList("l1").tally.length, $("#toast").textContent.startsWith("보기 전용이에요"), stServer.stRow.rev],
+      [true, nTallyView, false, nRevView]);
+    document.querySelector("#view-game .banner")?.click();
+    showTab("list");
     select("l2");
     eq("보기 전용: 보는 명단 고르기는 됨", state.cur, "l2");
     select("l1");
