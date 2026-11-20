@@ -111,6 +111,16 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     state.rig = { on: true, names: "다", w: 100 };
     eq("라이어 몰아주기 100 = 그 사람이 라이어", Array.from({ length: 30 }, () => CreateLiarRound(rp, "").nLiar).every(nLiar => nLiar === 2), true);
     state.rig = null;
+
+    // 대화형 놀이 규칙 (화면 없이 규칙 함수만)
+    eq("초성: 쌍자음·받침·한글 아님", [CalcChosung("사과"), CalcChosung("딸기"), CalcChosung("빵"), CalcChosung("A1")], ["ㅅㄱ", "ㄸㄱ", "ㅃ", "A1"]);
+    const arrKeysT = ["ㄱ", "ㄴ", "ㄱ"];
+    const setUsedT = new Set();
+    const arrPickT = Array.from({ length: 3 }, () => arrKeysT[PickCard(arrKeysT, setUsedT)]);
+    eq("카드 뽑기: 같은 초성은 한 번만, 다 나오면 처음부터", [new Set(arrPickT.slice(0, 2)).size, setUsedT.size], [2, 1]);
+    eq("남은 시간 (초 올림, 끝 = 0)", [CalcLeftSec(5000, 0), CalcLeftSec(5000, 4001), CalcLeftSec(5000, 5000), CalcLeftSec(5000, 9000)], [5, 1, 0, 0]);
+    eq("스피드 퀴즈 꼴찌 (동점이면 모두, 모두 같으면 무승부)",
+      [FindLowestSides([3, 1, 2]), FindLowestSides([2, 1, 1]), FindLowestSides([2, 2]), FindLowestSides([0, 0, 0])], [[1], [1, 2], [], []]);
     showTab("cannon"); await tick();
     const tgt = players().at(-1).name, n0 = L().tally.length; state.rig = { on: true, names: tgt, w: 100 };
     document.querySelector("#view-game .btn.primary").click(); await new Promise(r => setTimeout(r, 6000));
@@ -118,7 +128,24 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
     state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("탭 16개 열림 (명단·방명록·놀이 13·통계)", document.querySelectorAll("#tabs button").length, 16);
+    eq("탭 20개 열림 (명단·방명록·놀이 17·통계)", document.querySelectorAll("#tabs button").length, 20);
+    showTab("balance");
+    await tick();
+    const nTallyT = L().tally.length;
+    const btnRecordT = document.querySelector("#view-game .pass-wrap > .btn.primary");
+    btnRecordT.click();
+    eq("밸런스 게임: 아무도 안 고르면 안내만", [$("#toast").textContent, L().tally.length - nTallyT], ["벌칙 받을 사람을 먼저 눌러 주세요.", 0]);
+    document.querySelector("#view-game .pick-list .who-chip").click();
+    btnRecordT.click();
+    eq("밸런스 게임: 고른 사람 벌칙 기록·고른 것 풀림",
+      [L().tally.length - nTallyT, L().tally.at(-1).game, document.querySelectorAll("#view-game .pick-list .who-chip[aria-pressed=true]").length], [1, "밸런스 게임", 0]);
+    showTab("chosung");
+    await tick();
+    const nTallyCs = L().tally.length;
+    document.querySelector("#view-game .liar-card .btn.primary").click();
+    const strNowCs = document.querySelector("#view-game .liar-card strong").textContent;
+    document.querySelector("#view-game .liar-card .bar .btn:not(.primary)").click();
+    eq("초성 게임: 틀림 = 지금 차례 당첨·한 번만 기록", [L().tally.length - nTallyCs, L().tally.at(-1).game, L().tally.at(-1).name], [1, "초성 게임", strNowCs]);
     showTab("react");
     await tick();
     const btnPadT = document.querySelector("#view-game .rx-pad");

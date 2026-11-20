@@ -412,6 +412,16 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .liar-card.liar strong { color: var(--warn); }
 .liar-card small { color: var(--muted); }
 .liar-card .bar { justify-content: center; }
+
+/* 대화형 놀이: 밸런스 게임 · 이미지 게임 · 초성 게임 · 스피드 퀴즈 */
+.pick-list { justify-content: center; margin-top: 0; }
+.pick-list .who-chip { color: var(--ink); text-decoration: none; }
+.pick-list .who-chip[aria-pressed="true"] { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+.liar-card .vs { font: 700 18px/1 var(--font-body); color: var(--muted); }
+.liar-card strong.bal-b { color: var(--warn); }
+.cs-big { font: clamp(64px, 16vw, 130px)/1 var(--font-display); color: var(--accent); letter-spacing: .08em; }
+.cs-left { font: 28px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.cs-left.hurry { color: var(--warn); }
 </style>
 
 <header class="top"><div class="in">
@@ -453,6 +463,10 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button type="button" data-tab="bomb" aria-selected="false">💣 폭탄 돌리기</button>
         <button type="button" data-tab="react" aria-selected="false">⚡ 반응속도</button>
         <button type="button" data-tab="liar" aria-selected="false">🕵️ 라이어</button>
+        <button type="button" data-tab="balance" aria-selected="false">⚖️ 밸런스 게임</button>
+        <button type="button" data-tab="image" aria-selected="false">👉 이미지 게임</button>
+        <button type="button" data-tab="chosung" aria-selected="false">🔤 초성 게임</button>
+        <button type="button" data-tab="speed" aria-selected="false">⏱ 스피드 퀴즈</button>
         <button type="button" data-tab="seats" aria-selected="false">🪑 자리배치</button>
         <button type="button" data-tab="stats" aria-selected="false">🍺 벌칙 통계</button>
       </nav>
@@ -2943,6 +2957,420 @@ GAMES.liar = () => {
   StartRound();
 };
 
+// ================= 대화형 놀이: 밸런스 게임 · 이미지 게임 · 초성 게임 · 스피드 퀴즈 =================
+// 벌칙은 사람이 고르거나(밸런스·이미지) 실력으로 정해지는(초성·스피드 퀴즈) 놀이라 벌칙 몰아주기는 안 씀
+// 타이머·소리·기록은 버튼을 누른 뒤에만 시작 (탭만 열어서는 아무것도 안 돎)
+const BALANCE_QS = [
+  ["평생 소주만", "평생 맥주만"], ["숙취 없는 술", "살 안 찌는 안주"], ["1차만 하고 집", "끝까지 5차"], ["짜장면", "짬뽕"],
+  ["부먹", "찍먹"], ["여름에 히터", "겨울에 에어컨"], ["10년 전으로", "10년 뒤로"], ["투명인간", "순간이동"],
+  ["한 달 휴대폰 없이", "한 달 술 없이"], ["매일 칼퇴 월급 그대로", "매일 야근 월급 두 배"], ["고기 무한리필 평생", "회 무한리필 평생"],
+  ["아침형 인간", "저녁형 인간"], ["산", "바다"], ["평생 라면 끊기", "평생 치킨 끊기"], ["주량 두 배", "숙취 0"],
+  ["술 먹고 흑역사 영상", "술 먹고 전 애인에게 전화"], ["연락 자주 하는 애인", "연락 없어도 믿는 애인"], ["애인이 친구 깻잎 떼 주기 OK", "절대 안 됨"],
+  ["1년 동안 여행만", "1년 동안 돈만 모으기"], ["고양이", "강아지"], ["단톡방 안 읽은 알림 999개", "읽씹 당하기"],
+  ["집 앞 동네 술집", "분위기 좋은 먼 술집"], ["안주 없이 술", "술 없이 안주"], ["모르는 사람과 합석", "혼술"],
+  ["노래방에서 애국가만", "노래방에서 트로트만"], ["회식 때 사장님 옆자리", "회식비 내가 계산"], ["민트초코 평생", "민트초코 평생 금지"],
+  ["전 애인과 같은 회사", "전 애인이 내 친구와 연애"], ["소개팅 상대가 술을 못 마심", "소개팅 상대가 술을 너무 잘 마심"], ["1억 받고 10년 늙기", "그냥 살기"],
+];
+const IMAGE_QS = [
+  "가장 먼저 취할 것 같은 사람", "오늘 집에 제일 늦게 갈 것 같은 사람", "몰래 2차 갈 것 같은 사람", "연애 고수일 것 같은 사람",
+  "돈을 제일 많이 모았을 것 같은 사람", "로또 되면 말없이 사라질 것 같은 사람", "무인도에 데려가고 싶은 사람", "노래방에서 마이크 안 놓을 것 같은 사람",
+  "흑역사가 제일 많을 것 같은 사람", "결혼을 제일 먼저 할 것 같은 사람", "비밀을 제일 잘 지킬 것 같은 사람", "비밀을 제일 먼저 말할 것 같은 사람",
+  "술값을 몰래 계산할 것 같은 사람", "다음 정모에 제일 먼저 올 것 같은 사람", "지각을 제일 많이 할 것 같은 사람", "전 애인한테 연락할 것 같은 사람",
+  "10년 뒤 사장님일 것 같은 사람", "좀비 영화에서 끝까지 살아남을 것 같은 사람", "좀비 영화에서 제일 먼저 물릴 것 같은 사람", "춤을 제일 잘 출 것 같은 사람",
+  "요리를 제일 잘할 것 같은 사람", "길에서 캐스팅 당할 것 같은 사람", "잔소리를 제일 많이 할 것 같은 사람", "SNS를 제일 많이 할 것 같은 사람",
+  "울면서 술 마실 것 같은 사람", "내일 오늘 일을 기억 못 할 것 같은 사람", "지갑을 잃어버릴 것 같은 사람", "해외에서 살 것 같은 사람",
+  "첫인상과 제일 다른 사람", "오늘 제일 말 많은 사람",
+];
+const CHOSUNG_WORDS = [   // 두 글자 낱말: 초성 문제와, 끝난 뒤 보여 줄 예시
+  "사과", "바다", "학교", "가방", "나무", "노래", "다리", "라면", "마음", "모자", "바지", "버스", "사랑", "시계", "아기", "우유",
+  "자리", "주스", "치마", "카드", "커피", "토끼", "포도", "하늘", "호수", "기차", "냉면", "두부", "딸기", "맥주", "소주", "안주",
+  "김치", "거울", "고기", "공원", "구름", "기린", "눈물", "달걀", "도시", "동생", "머리", "문자", "반지", "별명", "부산", "비누",
+  "사진", "수박", "신발", "야구", "여름", "연필", "의자", "전화", "지갑", "친구", "택시", "편지", "피자", "회사", "휴가", "축구",
+];
+const SPEED_ACTS = [   // 몸으로 설명하기 좋은 동작 (스피드 퀴즈는 라이어 제시어도 함께 씀)
+  "양치질", "줄넘기", "운전", "낚시", "볼링", "수영", "태권도", "설거지", "빨래 널기", "화장하기", "면도", "셀카 찍기", "건배",
+  "원샷", "요가", "스키", "골프", "탁구", "피아노", "기타 치기", "지휘자", "마술사", "로봇", "좀비", "슈퍼맨", "하품", "재채기",
+  "딸꾹질", "윙크", "애교", "줄다리기", "팔씨름", "복싱", "자전거 타기", "번지점프", "사진 찍기", "택시 잡기", "노래방",
+];
+const CHOSUNG = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";   // 한글 음절의 초성 순서 (유니코드)
+
+/**
+ * 카드 하나 뽑기: 아직 안 나온 것 중에서 고름. 다 나왔으면 처음부터 다시
+ * @param arrKeys 카드마다 겹침 기준 값. 초성처럼 다른 카드가 같은 값이면 그 값은 한 번만 나옴
+ * @param setUsed 이미 나온 기준 값 (뽑은 값을 여기에 더함)
+ * @return 뽑은 카드 번호
+ */
+function PickCard(arrKeys, setUsed) {
+  let arrLeft = [...arrKeys.keys()].filter(nIdx => !setUsed.has(arrKeys[nIdx]));
+  if (!arrLeft.length) {
+    setUsed.clear();
+    arrLeft = [...arrKeys.keys()];
+  }
+  const nPick = arrLeft[Math.floor(Math.random() * arrLeft.length)];
+  setUsed.add(arrKeys[nPick]);
+  return nPick;
+}
+
+// 한글 초성: "사과" → "ㅅㄱ". 한글 음절이 아닌 글자는 그대로
+function CalcChosung(strWord) {
+  return [...strWord].map(strCh => {
+    const nCode = strCh.charCodeAt(0) - 0xAC00;
+    return nCode >= 0 && nCode < 11172 ? CHOSUNG[Math.floor(nCode / 588)] : strCh;
+  }).join("");
+}
+
+// 남은 시간(초, 올림). 0 = 시간 끝. 시각은 performance.now() 기준(ms)이라 폰이 잠깐 꺼졌다 켜져도 맞음
+function CalcLeftSec(nEndAt, nNow) {
+  return Math.max(0, Math.ceil((nEndAt - nNow) / 1000));
+}
+
+// 스피드 퀴즈 꼴찌: 가장 낮은 점수의 순서들(동점이면 모두). 모두 같은 점수면 무승부 = 빈 배열
+function FindLowestSides(arrScores) {
+  const nMin = Math.min(...arrScores);
+  const arrLow = [...arrScores.keys()].filter(nIdx => arrScores[nIdx] === nMin);
+  return arrLow.length === arrScores.length ? [] : arrLow;
+}
+
+/**
+ * 질문 카드 놀이 틀 (밸런스 게임·이미지 게임)
+ * 질문 → ‘셋·둘·하나’ → 다 같이 고르거나 지목 → 벌칙 받을 사람을 눌러 기록
+ * @param fnCreateQ 질문 하나를 카드 안에 넣을 요소 배열로 만드는 함수
+ * @param strPickHelp 벌칙 받을 사람 고르는 법 안내
+ */
+function ShowCardGame(strTitle, strGame, arrQs, fnCreateQ, strPickHelp) {
+  const btnNext = h("button", { type: "button", class: "btn primary" }, "🔀 다음 질문");
+  const elCard = h("div", { class: "liar-card" });
+  const elPick = h("div", { class: "who-list pick-list" });
+  const btnRecord = h("button", { type: "button", class: "btn primary big" }, "🍺 고른 사람 벌칙");
+  const setUsed = new Set();
+  const setPicked = new Set();   // 벌칙 받을 사람 id
+  let nQ = 0;
+  let nCount = 0;   // 3·2·1 = 세는 중, -1 = 다 셈("지금!"), 0 = 안 셈
+  let nTimer = 0;
+  mount(strTitle, [btnNext], h("div", { class: "stack pass-wrap" }, elCard, h("p", { class: "lad-result" }, strPickHelp), elPick, btnRecord), () => PaintPick());
+
+  function NextCard() {
+    clearTimeout(nTimer);
+    nQ = PickCard(arrQs, setUsed);
+    nCount = 0;
+    setPicked.clear();
+    PaintCard();
+    PaintPick();
+  }
+  function StartCount() {
+    clearTimeout(nTimer);
+    nCount = 3;
+    PaintCard();
+    nTimer = setTimeout(CountDown, 800);
+  }
+  function CountDown() {
+    nCount = nCount > 1 ? nCount - 1 : -1;
+    PaintCard();
+    if (nCount > 0) {
+      nTimer = setTimeout(CountDown, 800);
+    }
+  }
+  function PaintCard() {
+    if (nCount > 0) {
+      elCard.replaceChildren(h("strong", {}, String(nCount)));
+      return;
+    }
+    elCard.replaceChildren(...fnCreateQ(arrQs[nQ]),
+      nCount < 0 ? h("small", { class: "boom" }, "지금! 다 같이 👉") : null,
+      h("button", { type: "button", class: "btn big", onclick: StartCount }, nCount < 0 ? "⏱ 다시 세기" : "⏱ 셋·둘·하나!"));
+  }
+  // 참가자 칩: 눌러서 벌칙 받을 사람 고르기 (참가자에서 뺀 사람은 고른 것도 풀림)
+  function PaintPick() {
+    const arrPs = players();
+    for (const nId of [...setPicked]) {
+      if (!arrPs.some(stP => stP.id === nId)) {
+        setPicked.delete(nId);
+      }
+    }
+    elPick.replaceChildren(...arrPs.map(stP => h("button", {
+      type: "button", class: "who-chip", "aria-pressed": String(setPicked.has(stP.id)),
+      onclick: () => {
+        if (setPicked.has(stP.id)) {
+          setPicked.delete(stP.id);
+        } else {
+          setPicked.add(stP.id);
+        }
+        PaintPick();
+      },
+    }, stP.name)));
+  }
+  btnRecord.onclick = () => {
+    const arrOut = players().filter(stP => setPicked.has(stP.id));
+    if (!arrOut.length) {
+      toast("벌칙 받을 사람을 먼저 눌러 주세요.");
+      return;
+    }
+    for (const stP of arrOut) {
+      record(stP, strGame);
+    }
+    toast(`🍺 ${arrOut.map(stP => stP.name).join(", ")} 벌칙!`);
+    NextCard();
+  };
+  btnNext.onclick = NextCard;
+  stopGame = () => clearTimeout(nTimer);
+  NextCard();
+}
+
+// ---- 밸런스 게임: 둘 중 하나를 다 같이 고름. 적은 쪽을 고른 사람들이 벌칙 ----
+GAMES.balance = () => ShowCardGame("⚖️ 밸런스 게임", "밸런스 게임", BALANCE_QS,
+  arrQ => [h("strong", {}, arrQ[0]), h("span", { class: "vs" }, "VS"), h("strong", { class: "bal-b" }, arrQ[1])],
+  "‘하나!’에 손가락 1(왼쪽)·2(오른쪽)로 동시에 고르기 → 적은 쪽을 고른 사람들을 눌러 벌칙");
+
+// ---- 이미지 게임: "가장 ~할 것 같은 사람"을 다 같이 지목. 가장 많이 지목된 사람이 벌칙 ----
+GAMES.image = () => ShowCardGame("👉 이미지 게임", "이미지 게임", IMAGE_QS,
+  strQ => [h("small", {}, "이 중에서"), h("strong", {}, `${strQ}은?`)],
+  "‘하나!’에 다 같이 손가락으로 지목 → 가장 많이 지목된 사람을 눌러 벌칙 (동점이면 모두)");
+
+// ---- 초성 게임: 초성에 맞는 낱말을 차례로 말하고 폰을 넘김. 시간 안에 못 대거나 틀리면 당첨 ----
+GAMES.chosung = () => {
+  const selSec = h("select", { class: "sel", "aria-label": "한 사람 제한 시간" }, [5, 7, 10].map(nSec => h("option", { value: nSec }, `한 명 ${nSec}초`)));
+  selSec.value = "7";
+  const btnNew = h("button", { type: "button", class: "btn primary" }, "🔤 새 초성");
+  const elCard = h("div", { class: "liar-card" });
+  const elStrip = h("div", { class: "ps-strip" });
+  const elLeft = h("div", { class: "cs-left" });   // 남은 초: 똑딱마다 글자만 바꿈 (버튼을 다시 만들면 누르는 중인 터치가 씹힘)
+  const arrKeys = CHOSUNG_WORDS.map(CalcChosung);
+  const setUsed = new Set();
+  let stCs = null;
+  let nTimer = 0;
+  let nLastSec = 0;   // 남은 초가 바뀔 때만 똑딱 소리
+  let pAudio = null;
+  mount("🔤 초성 게임", [selSec, btnNew], h("div", { class: "stack pass-wrap" }, elCard, elStrip), () => {
+    if (!stCs.bRun) {
+      Ready();
+    }
+  });
+
+  function Ready() {
+    clearTimeout(nTimer);
+    stCs = { arrPs: sides().ps, nWord: PickCard(arrKeys, setUsed), nTurn: 0, nEndAt: 0, bRun: false, stOut: null };
+    Paint();
+  }
+  function Start() {
+    if (stCs.arrPs.length < 2) {
+      toast("참가자가 2명 이상이어야 해요.");
+      return;
+    }
+    pAudio ??= CreateAudio();
+    stCs.bRun = true;
+    stCs.nTurn = 0;
+    stCs.nEndAt = performance.now() + selSec.value * 1000;
+    Paint();
+    Tick();
+  }
+  function Tick() {
+    const nLeft = CalcLeftSec(stCs.nEndAt, performance.now());
+    if (nLeft === 0) {
+      Lose();
+      return;
+    }
+    if (nLeft !== nLastSec && nLeft <= 3) {
+      PlayTone(pAudio, 1000, 0.05);
+    }
+    nLastSec = nLeft;
+    PaintLeft(nLeft);
+    nTimer = setTimeout(Tick, 200);
+  }
+  function PaintLeft(nLeft) {
+    elLeft.textContent = `${nLeft}초`;
+    elLeft.classList.toggle("hurry", nLeft <= 3);
+  }
+  // 말했어요 → 다음 사람. 이미 시간이 지났으면(폰이 잠깐 꺼졌던 경우 등) 지금 사람이 당첨
+  function Pass() {
+    if (!stCs.bRun) {
+      return;
+    }
+    if (CalcLeftSec(stCs.nEndAt, performance.now()) === 0) {
+      Lose();
+      return;
+    }
+    stCs.nTurn = (stCs.nTurn + 1) % stCs.arrPs.length;
+    stCs.nEndAt = performance.now() + selSec.value * 1000;
+    Paint();
+  }
+  // 시간 끝·틀림 모두 여기로: 한 판에 한 번만 기록
+  function Lose() {
+    if (!stCs.bRun) {
+      return;
+    }
+    clearTimeout(nTimer);
+    stCs.bRun = false;
+    stCs.stOut = stCs.arrPs[stCs.nTurn];
+    PlayTone(pAudio, 90, 0.6, "sawtooth");
+    navigator.vibrate?.(400);
+    record(stCs.stOut, "초성 게임");
+    Paint();
+  }
+  function Paint() {
+    const arrPs = stCs.arrPs;
+    const stNow = arrPs[stCs.nTurn];
+    const strCs = arrKeys[stCs.nWord];
+    btnNew.disabled = stCs.bRun;
+    selSec.disabled = stCs.bRun;
+    if (arrPs.length < 2) {
+      elCard.replaceChildren(h("p", { class: "note" }, "참가자가 2명 이상이어야 해요"));
+    } else if (stCs.stOut) {
+      elCard.replaceChildren(h("div", { class: "cs-big" }, strCs), h("strong", {}, h("span", { class: "boom" }, "💥 "), h("span", { style: `color:${stCs.stOut.c}` }, stCs.stOut.name), " 당첨!"),
+        h("small", {}, `예: ${CHOSUNG_WORDS[stCs.nWord]} · ‘새 초성’을 누르면 다시`));
+    } else if (stCs.bRun) {
+      const stNext = arrPs[(stCs.nTurn + 1) % arrPs.length];
+      PaintLeft(CalcLeftSec(stCs.nEndAt, performance.now()));
+      elCard.replaceChildren(h("div", { class: "cs-big" }, strCs), h("strong", { style: `color:${stNow.c}` }, stNow.name), elLeft,
+        h("div", { class: "bar" },
+          h("button", { type: "button", class: "btn primary big", onclick: Pass }, `⭕ 말했어요 → ${stNext.name}`),
+          h("button", { type: "button", class: "btn big", onclick: Lose }, "❌ 틀림")));
+    } else {
+      elCard.replaceChildren(h("div", { class: "cs-big" }, strCs), h("small", {}, "이 초성으로 시작하는 낱말을 한 명씩 말하기 (나온 말 다시 쓰면 틀림)"),
+        h("button", { type: "button", class: "btn primary big", onclick: Start }, `▶ ${stNow.name}부터 시작`));
+    }
+    elStrip.replaceChildren(...CreateTurnStrip(arrPs, stCs.bRun ? stNow : null));
+  }
+  btnNew.onclick = Ready;
+  stopGame = () => {
+    clearTimeout(nTimer);
+    pAudio?.close();
+  };
+  Ready();
+};
+
+// ---- 스피드 퀴즈: 차례마다 설명할 사람이 낱말을 보고 몸·말로 설명, 나머지가 맞힘. 점수가 가장 낮은 쪽이 벌칙 ----
+GAMES.speed = () => {
+  const modeSel = modeSelect();
+  const selSec = h("select", { class: "sel", "aria-label": "한 차례 시간" }, [30, 60, 90].map(nSec => h("option", { value: nSec }, `${nSec}초`)));
+  selSec.value = "60";
+  const btnNew = h("button", { type: "button", class: "btn primary" }, "🔀 처음부터");
+  const elCard = h("div", { class: "liar-card" });
+  const elRank = h("ol", { class: "rank" });
+  const elLeft = h("div", { class: "cs-left" });   // 남은 초·점수: 똑딱마다 글자만 바꿈 (버튼을 다시 만들면 누르는 중인 터치가 씹힘)
+  const arrWords = [...SPEED_ACTS, ...Object.values(LIAR_WORDS).flat()];
+  const setUsed = new Set();
+  let stSq = null;
+  let nTimer = 0;
+  let nLastSec = 0;
+  let pAudio = null;
+  mount("⏱ 스피드 퀴즈", [modeSel, selSec, btnNew], h("div", { class: "stack pass-wrap" }, elCard, h("div", { class: "rank-box" }, h("h3", {}, "점수"), elRank)), () => {
+    if (!stSq.bRun) {
+      Ready(modeSel.value);
+    }
+  });
+
+  function Ready(strMode) {
+    clearTimeout(nTimer);
+    const stSides = sides(strMode);
+    modeSel.value = stSides.mode;
+    stSq = { arrPs: stSides.ps, arrScores: [], nTurn: 0, nScore: 0, nWord: 0, nEndAt: 0, bRun: false, arrOut: null };
+    Paint();
+  }
+  function Start() {
+    if (stSq.arrPs.length < 2) {
+      toast("참가자(팀)가 2개 이상이어야 해요.");
+      return;
+    }
+    pAudio ??= CreateAudio();
+    stSq.bRun = true;
+    stSq.nScore = 0;
+    stSq.nWord = PickCard(arrWords, setUsed);
+    stSq.nEndAt = performance.now() + selSec.value * 1000;
+    btnNew.disabled = true;
+    modeSel.disabled = true;
+    selSec.disabled = true;
+    Paint();
+    Tick();
+  }
+  function Tick() {
+    const nLeft = CalcLeftSec(stSq.nEndAt, performance.now());
+    if (nLeft === 0) {
+      TimeUp();
+      return;
+    }
+    if (nLeft !== nLastSec && nLeft <= 5) {
+      PlayTone(pAudio, 1000, 0.05);
+    }
+    nLastSec = nLeft;
+    PaintLeft(nLeft);
+    nTimer = setTimeout(Tick, 200);
+  }
+  function PaintLeft(nLeft) {
+    elLeft.textContent = `${nLeft}초 · ${stSq.nScore}점`;
+    elLeft.classList.toggle("hurry", nLeft <= 5);
+  }
+  // 정답(+1)·패스 → 다음 낱말. 시간이 이미 지났으면 점수 없이 차례 끝
+  function Answer(bCorrect) {
+    if (!stSq.bRun) {
+      return;
+    }
+    if (CalcLeftSec(stSq.nEndAt, performance.now()) === 0) {
+      TimeUp();
+      return;
+    }
+    if (bCorrect) {
+      stSq.nScore++;
+      PlayTone(pAudio, 1320, 0.08, "sine");
+    }
+    stSq.nWord = PickCard(arrWords, setUsed);
+    Paint();
+  }
+  // 차례 끝: 한 차례에 한 번만. 모두 끝나면 꼴찌 기록 (모두 같은 점수면 무승부)
+  function TimeUp() {
+    if (!stSq.bRun) {
+      return;
+    }
+    clearTimeout(nTimer);
+    stSq.bRun = false;
+    stSq.arrScores.push(stSq.nScore);
+    stSq.nTurn++;
+    PlayTone(pAudio, 220, 0.5, "sawtooth");
+    navigator.vibrate?.(300);
+    if (stSq.nTurn >= stSq.arrPs.length) {
+      stSq.arrOut = FindLowestSides(stSq.arrScores).map(nIdx => stSq.arrPs[nIdx]);
+      for (const stP of stSq.arrOut) {
+        record(stP, "스피드 퀴즈");
+      }
+    }
+    btnNew.disabled = false;
+    modeSel.disabled = false;
+    selSec.disabled = false;
+    Paint();
+  }
+  function Paint() {
+    const arrPs = stSq.arrPs;
+    const stNow = arrPs[stSq.nTurn];
+    if (arrPs.length < 2) {
+      elCard.replaceChildren(h("p", { class: "note" }, "참가자(팀)가 2개 이상이어야 해요"));
+    } else if (stSq.arrOut) {
+      elCard.replaceChildren(stSq.arrOut.length
+        ? h("strong", {}, h("span", { class: "boom" }, "🍺 "), stSq.arrOut.map(stP => stP.name).join(", "), " 당첨!")
+        : h("strong", {}, "🤝 무승부!"),
+      h("small", {}, stSq.arrOut.length ? "점수가 가장 낮아요 · ‘처음부터’로 다시" : "모두 같은 점수 · ‘처음부터’로 다시"));
+    } else if (stSq.bRun) {
+      PaintLeft(CalcLeftSec(stSq.nEndAt, performance.now()));
+      elCard.replaceChildren(elLeft, h("strong", {}, arrWords[stSq.nWord]),
+        h("div", { class: "bar" },
+          h("button", { type: "button", class: "btn primary big", onclick: () => Answer(true) }, "⭕ 정답"),
+          h("button", { type: "button", class: "btn big", onclick: () => Answer(false) }, "⏭ 패스")));
+    } else {
+      elCard.replaceChildren(h("strong", { style: `color:${stNow.c}` }, `${stNow.name} 차례`),
+        stNow.members ? h("small", {}, stNow.members.join(" · ")) : null,
+        h("small", {}, "설명할 사람만 화면을 보고, 나머지가 맞혀요"),
+        h("button", { type: "button", class: "btn primary big", onclick: Start }, `▶ 시작 (${selSec.value}초)`));
+    }
+    const arrDone = stSq.arrScores.map((nScore, nIdx) => ({ nScore, stP: arrPs[nIdx] })).sort((stA, stB) => stB.nScore - stA.nScore);
+    elRank.replaceChildren(...arrDone.map(stRec => h("li", {}, h("i", { style: `background:${stRec.stP.c}` }), `${stRec.stP.name} · ${stRec.nScore}점`)));
+  }
+  modeSel.onchange = () => Ready(modeSel.value);
+  btnNew.onclick = () => Ready(modeSel.value);
+  stopGame = () => {
+    clearTimeout(nTimer);
+    pAudio?.close();
+  };
+  Ready("solo");
+};
+
 // ---- 벌칙 통계판: 놀이 당첨 횟수 순위 (오늘의 술상무) ----
 GAMES.stats = () => {
   const list = L(), tally = list.tally || [];
@@ -2957,7 +3385,7 @@ GAMES.stats = () => {
   const person = name => list.people.find(p => p.name === name);
   const dot = name => { const p = person(name); return p ? colorFor(p) : "var(--muted)"; };
   const gamesText = o => [...o.games].map(([g, n]) => `${g} ${n}`).join(" · ");
-  const body = !rows.length ? h("p", { class: "hint" }, "아직 기록이 없어요. 핀볼·돌림판·스피드 룰렛·대포 뽑기·해적 룰렛·사다리·경마·업다운·폭탄 돌리기·반응속도·라이어에서 당첨되면 여기에 쌓여요.")
+  const body = !rows.length ? h("p", { class: "hint" }, "아직 기록이 없어요. 핀볼·돌림판·스피드 룰렛·대포 뽑기·해적 룰렛·사다리·경마·업다운·폭탄 돌리기·반응속도·라이어·밸런스·이미지·초성·스피드 퀴즈에서 당첨되면 여기에 쌓여요.")
     : h("div", { class: "stack" },
       h("div", { class: "podium" }, rows.slice(0, 3).map((o, i) => h("div", { class: "pod pod-" + (i + 1) },
         h("div", { class: "pod-medal" }, ["👑", "🥈", "🥉"][i]), h("strong", {}, o.name), h("b", {}, `${o.n}회`), h("small", {}, gamesText(o))))),
