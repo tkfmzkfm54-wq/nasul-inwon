@@ -453,6 +453,12 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .cs-big { font: clamp(64px, 16vw, 130px)/1 var(--font-display); color: var(--accent); letter-spacing: .08em; }
 .cs-left { font: 28px/1 var(--font-display); font-variant-numeric: tabular-nums; }
 .cs-left.hurry { color: var(--warn); }
+/* 상식 퀴즈: 문제는 본문 글씨(길어도 줄바꿈), 보기 4개는 세로로. 답한 뒤 정답 초록·고른 오답 빨강, 나머지는 흐리게 */
+.liar-card strong.quiz-q { font: 700 clamp(20px, 5vw, 26px)/1.35 var(--font-body); color: var(--ink); }
+.quiz-choices { display: grid; gap: 8px; width: 100%; }
+.quiz-choices .btn { white-space: normal; text-align: left; font-size: 17px; padding: 12px 16px; border-radius: 14px; }
+.quiz-choices .btn.ok { background: var(--t-green-bg); color: var(--t-green-fg); border-color: var(--ok); opacity: 1; }
+.quiz-choices .btn.bad { background: var(--t-red-bg); color: var(--t-red-fg); border-color: var(--warn); opacity: 1; }
 
 /* 놀이 메뉴 묶음: 고른 묶음의 탭만 보임 */
 .grps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -513,6 +519,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button type="button" data-grp="pass" data-tab="chosung" aria-selected="false">🔤 초성 게임</button>
         <button type="button" data-grp="pass" data-tab="relay" aria-selected="false">🔗 끝말잇기</button>
         <button type="button" data-grp="pass" data-tab="speed" aria-selected="false">⏱ 스피드 퀴즈</button>
+        <button type="button" data-grp="pass" data-tab="quiz" aria-selected="false">🧠 상식 퀴즈</button>
         <button type="button" data-grp="talk" data-tab="balance" aria-selected="false">⚖️ 밸런스 게임</button>
         <button type="button" data-grp="talk" data-tab="image" aria-selected="false">👉 이미지 게임</button>
         <button type="button" data-grp="talk" data-tab="truth" aria-selected="false">🎯 진실 혹은 도전</button>
@@ -3690,6 +3697,364 @@ GAMES.speed = () => {
     pAudio?.close();
   };
   Ready("solo");
+};
+
+// ---- 상식 퀴즈: 차례대로 한 문제씩 4지선다. 틀리거나 시간이 끝나면 그 사람 벌칙, 맞히면 다음 사람 ----
+// 카테고리 → 난이도(하·중·상) → [문제, 정답, 오답, 오답, 오답]. 보기 순서는 낼 때 섞음. 문제 글은 전체에서 겹치지 않게 (자체 시험이 확인)
+const QUIZ_QS = {
+  "🌏 세계 수도": {
+    하: [
+      ["일본의 수도는?", "도쿄", "오사카", "교토", "나고야"],
+      ["프랑스의 수도는?", "파리", "리옹", "마르세유", "니스"],
+      ["영국의 수도는?", "런던", "맨체스터", "리버풀", "에든버러"],
+      ["중국의 수도는?", "베이징", "상하이", "홍콩", "광저우"],
+      ["이탈리아의 수도는?", "로마", "밀라노", "베네치아", "나폴리"],
+      ["독일의 수도는?", "베를린", "뮌헨", "프랑크푸르트", "함부르크"],
+      ["러시아의 수도는?", "모스크바", "상트페테르부르크", "블라디보스토크", "노보시비르스크"],
+      ["스페인의 수도는?", "마드리드", "바르셀로나", "세비야", "발렌시아"],
+    ],
+    중: [
+      ["미국의 수도는?", "워싱턴 D.C.", "뉴욕", "로스앤젤레스", "시카고"],
+      ["캐나다의 수도는?", "오타와", "토론토", "밴쿠버", "몬트리올"],
+      ["호주의 수도는?", "캔버라", "시드니", "멜버른", "브리즈번"],
+      ["브라질의 수도는?", "브라질리아", "리우데자네이루", "상파울루", "살바도르"],
+      ["튀르키예(터키)의 수도는?", "앙카라", "이스탄불", "이즈미르", "안탈리아"],
+      ["베트남의 수도는?", "하노이", "호찌민", "다낭", "하이퐁"],
+      ["태국의 수도는?", "방콕", "치앙마이", "푸껫", "파타야"],
+      ["스위스의 수도는?", "베른", "취리히", "제네바", "바젤"],
+      ["인도의 수도는?", "뉴델리", "뭄바이", "콜카타", "벵갈루루"],
+    ],
+    상: [
+      ["뉴질랜드의 수도는?", "웰링턴", "오클랜드", "크라이스트처치", "퀸스타운"],
+      ["남아프리카 공화국의 행정 수도는?", "프리토리아", "케이프타운", "요하네스버그", "더반"],
+      ["카자흐스탄의 수도는?", "아스타나", "알마티", "타슈켄트", "비슈케크"],
+      ["미얀마의 수도는?", "네피도", "양곤", "만달레이", "바고"],
+      ["나이지리아의 수도는?", "아부자", "라고스", "카노", "이바단"],
+      ["몽골의 수도는?", "울란바토르", "다르항", "에르데네트", "알마티"],
+      ["아르헨티나의 수도는?", "부에노스아이레스", "코르도바", "로사리오", "몬테비데오"],
+      ["모로코의 수도는?", "라바트", "카사블랑카", "마라케시", "페스"],
+      ["파키스탄의 수도는?", "이슬라마바드", "카라치", "라호르", "페샤와르"],
+    ],
+  },
+  "🇰🇷 한국사": {
+    하: [
+      ["훈민정음(한글)을 만든 왕은?", "세종대왕", "태조", "정조", "영조"],
+      ["거북선으로 왜군을 물리친 장군은?", "이순신", "강감찬", "을지문덕", "김유신"],
+      ["조선을 세운 사람은?", "이성계", "왕건", "이방원", "정도전"],
+      ["고려를 세운 사람은?", "왕건", "궁예", "견훤", "이성계"],
+      ["3·1 운동이 일어난 해는?", "1919년", "1910년", "1945년", "1950년"],
+      ["광복절은 몇 월 며칠?", "8월 15일", "3월 1일", "6월 25일", "10월 3일"],
+      ["6·25 전쟁이 시작된 해는?", "1950년", "1945년", "1953년", "1948년"],
+    ],
+    중: [
+      ["살수대첩에서 수나라 군대를 물리친 고구려 장군은?", "을지문덕", "연개소문", "양만춘", "강감찬"],
+      ["귀주대첩에서 거란군을 크게 물리친 고려 장수는?", "강감찬", "서희", "윤관", "최영"],
+      ["삼국 통일을 완성한 신라의 왕은?", "문무왕", "무열왕", "진흥왕", "법흥왕"],
+      ["대한민국 임시 정부가 처음 세워진 도시는?", "상하이", "충칭", "베이징", "블라디보스토크"],
+      ["1894년 동학 농민 운동을 이끈 인물은?", "전봉준", "김옥균", "최익현", "안중근"],
+      ["1884년 갑신정변을 일으킨 인물은?", "김옥균", "전봉준", "흥선대원군", "최익현"],
+      ["하얼빈에서 이토 히로부미를 저격한 독립운동가는?", "안중근", "윤봉길", "이봉창", "김구"],
+    ],
+    상: [
+      ["고구려를 세운 사람은?", "주몽", "온조", "박혁거세", "김수로"],
+      ["백제를 세운 사람은?", "온조", "주몽", "박혁거세", "근초고왕"],
+      ["조선의 법전 '경국대전'을 완성해 반포한 왕은?", "성종", "세조", "세종", "태종"],
+      ["임진왜란이 일어난 해는?", "1592년", "1636년", "1597년", "1510년"],
+      ["병자호란이 일어난 해는?", "1636년", "1592년", "1627년", "1653년"],
+      ["팔만대장경이 보관된 절은?", "해인사", "불국사", "통도사", "송광사"],
+      ["신라 최초의 여왕은?", "선덕여왕", "진덕여왕", "진성여왕", "천추태후"],
+      ["대한제국의 마지막 황제는?", "순종", "고종", "철종", "헌종"],
+    ],
+  },
+  "🔬 과학": {
+    하: [
+      ["물의 화학식은?", "H₂O", "CO₂", "O₂", "NaCl"],
+      ["태양계에서 가장 큰 행성은?", "목성", "토성", "지구", "해왕성"],
+      ["지구에서 가장 가까운 항성(별)은?", "태양", "북극성", "시리우스", "프록시마 센타우리"],
+      ["식물이 빛으로 양분을 만드는 과정은?", "광합성", "호흡", "증산 작용", "발효"],
+      ["1기압에서 물이 끓는 온도(섭씨)는?", "100도", "90도", "80도", "120도"],
+      ["피를 온몸으로 내보내는 기관은?", "심장", "폐", "간", "콩팥"],
+      ["무지개 색은 흔히 몇 가지로 말할까?", "7가지", "5가지", "6가지", "8가지"],
+    ],
+    중: [
+      ["공기 중에 가장 많은 기체는?", "질소", "산소", "이산화탄소", "아르곤"],
+      ["소금의 주성분(NaCl)은?", "염화나트륨", "탄산칼슘", "수산화나트륨", "황산구리"],
+      ["빛은 1초에 약 몇 km를 갈까?", "약 30만 km", "약 3만 km", "약 300만 km", "약 3천 km"],
+      ["원소 기호 Fe는?", "철", "금", "은", "납"],
+      ["원소 기호 Au는?", "금", "은", "알루미늄", "구리"],
+      ["고리가 가장 뚜렷하게 보이는 행성은?", "토성", "목성", "화성", "금성"],
+      ["소리가 전달되지 않는 곳은?", "진공", "물속", "쇠막대", "공기"],
+      ["상대성 이론을 발표한 과학자는?", "아인슈타인", "뉴턴", "갈릴레이", "호킹"],
+    ],
+    상: [
+      ["몸속 장기 중 가장 무거운 것은?", "간", "심장", "위", "콩팥"],
+      ["DNA의 이중 나선 구조를 밝힌 과학자는?", "왓슨과 크릭", "멘델", "다윈", "파스퇴르"],
+      ["원소 주기율표를 처음 만든 과학자는?", "멘델레예프", "라부아지에", "돌턴", "퀴리"],
+      ["원소 기호 K는?", "칼륨", "칼슘", "크립톤", "탄소"],
+      ["순수한 물(25℃)의 pH는?", "7", "0", "14", "5"],
+      ["오존층이 있는 대기층은?", "성층권", "대류권", "중간권", "열권"],
+      ["'광년'은 무엇을 재는 단위?", "거리", "시간", "밝기", "속도"],
+    ],
+  },
+  "✍ 맞춤법": {
+    하: [
+      ["바른 말은? (정말 ○○)", "어이없다", "어의없다", "어이업다", "어히없다"],
+      ["바른 말은? (○○ 기분이 좋다)", "왠지", "웬지", "왼지", "웬찌"],
+      ["바른 말은? (오늘이 ○○이지?)", "며칠", "몇일", "몇 일", "몃칠"],
+      ["바른 말은? (밥 먹고 ○○는 내가 할게)", "설거지", "설겆이", "설걷이", "설거찌"],
+      ["바른 말은? (소문이 ○○ 퍼졌다)", "금세", "금새", "금쌔", "끔새"],
+      ["바른 말은? (정말 ○○ 만났다)", "오랜만에", "오랫만에", "오랜만애", "오렌만에"],
+      ["바른 말은? (이제 다 ○○)", "됐다", "됬다", "됫다", "됏다"],
+    ],
+    중: [
+      ["바른 말은? (참 ○○ 일이네)", "희한한", "희안한", "히한한", "히안한"],
+      ["바른 말은? (이게 ○○이야!)", "웬일", "왠일", "웬닐", "왼일"],
+      ["바른 말은? (각자 맡은 ○○)", "역할", "역활", "역칼", "녁할"],
+      ["바른 말은? (위험을 ○○ 구했다)", "무릅쓰고", "무릎쓰고", "무릅스고", "무릎스고"],
+      ["바른 말은? (○○ 그럴 필요 없어)", "굳이", "구지", "궂이", "굿이"],
+      ["바른 말은? (○○ 그런 거 아니야)", "일부러", "일부로", "일브러", "일부루"],
+      ["바른 말은? (이걸 ○○!)", "어떡해", "어떻해", "어떡케", "어떠캐"],
+      ["바른 말은? (카드로 ○○했어요)", "결제", "결재", "결졔", "겔제"],
+    ],
+    상: [
+      ["바른 말은? (왜 이렇게 ○○?)", "닦달해", "닥달해", "닭달해", "닥닥해"],
+      ["바른 말은? (○○ 생각해 보니)", "곰곰이", "곰곰히", "곰곰희", "곰곰니"],
+      ["바른 말은? (손을 ○○ 씻자)", "깨끗이", "깨끗히", "깨끄시", "깨끗희"],
+      ["바른 말은? (○○ 전문가들이 모였다)", "내로라하는", "내노라하는", "내놓으라하는", "내로라는"],
+      ["바른 말은? (걱정돼서 ○○)", "안절부절못했다", "안절부절했다", "안절부절않았다", "안졀부졀못했다"],
+      ["바른 말은? (실내 흡연을 ○○ 주세요)", "삼가", "삼가해", "삼가하여", "삼카"],
+      ["바른 말은? (퇴근길에 편의점에 ○○)", "들렀다", "들렸다", "들럿다", "들렀따"],
+      ["바른 말은? (첫 만남의 ○○)", "설렘", "설레임", "설래임", "설램"],
+      ["바른 말은? (남의 글을 ○○했다)", "짜깁기", "짜집기", "짜깊기", "짜찝기"],
+    ],
+  },
+  "⚽ 스포츠": {
+    하: [
+      ["축구는 한 팀이 몇 명씩 뛸까?", "11명", "10명", "9명", "12명"],
+      ["야구에서 스트라이크 몇 개면 아웃?", "3개", "4개", "2개", "5개"],
+      ["올림픽 오륜기의 고리는 몇 개?", "5개", "4개", "6개", "7개"],
+      ["축구 경기의 전반전은 몇 분?", "45분", "40분", "30분", "50분"],
+      ["야구에서 수비하는 선수는 몇 명?", "9명", "11명", "10명", "8명"],
+      ["태권도가 시작된 나라는?", "한국", "일본", "중국", "태국"],
+    ],
+    중: [
+      ["농구는 한 팀이 코트에서 몇 명씩 뛸까?", "5명", "6명", "7명", "4명"],
+      ["배구는 한 팀이 코트에서 몇 명씩 뛸까?", "6명", "5명", "7명", "9명"],
+      ["골프에서 기준 타수보다 1타 적게 친 것은?", "버디", "보기", "이글", "파"],
+      ["볼링에서 스트라이크 3번 연속을 부르는 말은?", "터키", "더블", "스페어", "거터"],
+      ["축구 월드컵은 몇 년마다 열릴까?", "4년", "2년", "3년", "5년"],
+      ["한 선수가 한 경기에서 3골을 넣는 것은?", "해트트릭", "더블", "클린시트", "멀티골"],
+      ["농구에서 3점 선 안쪽 필드골은 몇 점?", "2점", "1점", "3점", "4점"],
+    ],
+    상: [
+      ["테니스에서 0점을 부르는 말은?", "러브", "듀스", "제로", "에이스"],
+      ["마라톤 풀코스 거리는?", "42.195km", "40km", "42km", "45.195km"],
+      ["탁구 한 게임은 몇 점을 먼저 내면 이길까? (듀스 없을 때)", "11점", "21점", "15점", "10점"],
+      ["2002 한일 월드컵에서 우리나라의 최종 순위는?", "4위", "3위", "8강", "16강"],
+      ["1896년 첫 근대 올림픽이 열린 도시는?", "아테네", "파리", "런던", "로마"],
+      ["골프에서 기준 타수보다 2타 적게 친 것은?", "이글", "버디", "알바트로스", "보기"],
+    ],
+  },
+  "🎲 생활·지리": {
+    하: [
+      ["1년은 보통 며칠?", "365일", "360일", "366일", "364일"],
+      ["신호등에서 '멈춤'을 뜻하는 색은?", "빨간색", "노란색", "초록색", "파란색"],
+      ["1시간은 몇 초?", "3600초", "600초", "6000초", "360초"],
+      ["배추김치의 주재료는?", "배추", "양배추", "상추", "시금치"],
+      ["대한민국 국기의 이름은?", "태극기", "일장기", "성조기", "오성홍기"],
+      ["우리나라 돈의 단위는?", "원", "엔", "위안", "달러"],
+    ],
+    중: [
+      ["세계에서 가장 높은 산은?", "에베레스트", "K2", "킬리만자로", "몽블랑"],
+      ["세계에서 면적이 가장 넓은 나라는?", "러시아", "캐나다", "중국", "미국"],
+      ["세계에서 가장 넓은 바다(대양)는?", "태평양", "대서양", "인도양", "북극해"],
+      ["남한에서 가장 높은 산은?", "한라산", "지리산", "설악산", "덕유산"],
+      ["대한민국의 나라꽃은?", "무궁화", "진달래", "개나리", "벚꽃"],
+      ["독도가 속한 군은?", "울릉군", "포항시", "울진군", "영덕군"],
+    ],
+    상: [
+      ["2023년부터 세계에서 인구가 가장 많은 나라는?", "인도", "중국", "미국", "인도네시아"],
+      ["1인치는 몇 cm?", "2.54cm", "2.2cm", "3.3cm", "1.5cm"],
+      ["1마일은 약 몇 km?", "1.6km", "1.2km", "2.0km", "1.9km"],
+      ["넓이 한 평은 약 몇 ㎡?", "3.3㎡", "2.5㎡", "4.5㎡", "1.8㎡"],
+      ["우리나라에서 가장 큰 섬은?", "제주도", "거제도", "진도", "강화도"],
+      ["세계에서 면적이 가장 작은 나라는?", "바티칸 시국", "모나코", "산마리노", "리히텐슈타인"],
+    ],
+  },
+};
+const QUIZ_LEVELS = ["하", "중", "상"];
+
+/**
+ * 고른 카테고리·난이도의 문제 모으기
+ * @param strCat 카테고리 이름 ("" = 전체), strLv 난이도 ("" = 섞어서)
+ * @return [{ strCat, strLv, strQ, strAns, arrWrong }]
+ */
+function CollectQuizPool(strCat, strLv) {
+  const arrOut = [];
+  for (const [strC, stLvs] of Object.entries(QUIZ_QS)) {
+    if (strCat && strCat !== strC) {
+      continue;
+    }
+    for (const strL of QUIZ_LEVELS) {
+      if (strLv && strLv !== strL) {
+        continue;
+      }
+      arrOut.push(...stLvs[strL].map(arrQ => ({ strCat: strC, strLv: strL, strQ: arrQ[0], strAns: arrQ[1], arrWrong: arrQ.slice(2) })));
+    }
+  }
+  return arrOut;
+}
+
+GAMES.quiz = () => {
+  const selCat = h("select", { class: "sel", "aria-label": "카테고리" },
+    h("option", { value: "" }, "📚 전체"), Object.keys(QUIZ_QS).map(strC => h("option", { value: strC }, strC)));
+  const selLv = h("select", { class: "sel", "aria-label": "난이도" },
+    h("option", { value: "" }, "난이도 섞어서"), QUIZ_LEVELS.map(strL => h("option", { value: strL }, `난이도 ${strL}`)));
+  const selSec = h("select", { class: "sel", "aria-label": "제한 시간" },
+    [[0, "시간 제한 없음"], [10, "10초"], [20, "20초"], [30, "30초"]].map(([nSec, strText]) => h("option", { value: nSec }, strText)));
+  selSec.value = "20";
+  const btnNew = h("button", { type: "button", class: "btn primary" }, "🔀 처음부터");
+  const elCard = h("div", { class: "liar-card" });
+  const elRank = h("ol", { class: "rank" });
+  const elLeft = h("div", { class: "cs-left" });   // 남은 초: 똑딱마다 글자만 바꿈 (버튼을 다시 만들면 누르는 중인 터치가 씹힘)
+  const setUsed = new Set();
+  let arrPool = [];
+  let arrKeys = [];
+  let stQz = null;
+  let nTimer = 0;
+  let nLastSec = 0;
+  let pAudio = null;
+  mount("🧠 상식 퀴즈", [selCat, selLv, selSec, btnNew], h("div", { class: "stack pass-wrap" }, elCard, h("div", { class: "rank-box" }, h("h3", {}, "맞힘 · 틀림"), elRank)), () => {
+    if (stQz.strStep !== "ask") {
+      Ready();
+    }
+  });
+
+  // 카테고리·난이도를 바꾸면 문제 묶음만 새로 (점수·차례는 그대로)
+  function LoadPool() {
+    arrPool = CollectQuizPool(selCat.value, selLv.value);
+    arrKeys = arrPool.map(stQ => `${stQ.strCat}|${stQ.strQ}`);
+    setUsed.clear();
+  }
+  function Ready() {
+    clearTimeout(nTimer);
+    stQz = { arrPs: sides().ps, nTurn: 0, strStep: "ready", stQ: null, arrChoices: [], strPicked: null, nEndAt: 0, mapScore: new Map() };   // strStep: ready → ask → done
+    Paint();
+  }
+  function Ask() {
+    if (stQz.arrPs.length < 2) {
+      toast("참가자가 2명 이상이어야 해요.");
+      return;
+    }
+    pAudio ??= CreateAudio();
+    const stQ = arrPool[PickCard(arrKeys, setUsed)];
+    Object.assign(stQz, { stQ, arrChoices: shuffle([stQ.strAns, ...stQ.arrWrong]), strPicked: null, strStep: "ask" });
+    stQz.nEndAt = +selSec.value ? performance.now() + selSec.value * 1000 : 0;   // 0 = 시간 제한 없음
+    Paint();
+    if (stQz.nEndAt) {
+      Tick();
+    }
+  }
+  function Tick() {
+    const nLeft = CalcLeftSec(stQz.nEndAt, performance.now());
+    if (nLeft === 0) {
+      Answer(null);
+      return;
+    }
+    if (nLeft !== nLastSec && nLeft <= 3) {
+      PlayTone(pAudio, 1000, 0.05);
+    }
+    nLastSec = nLeft;
+    PaintLeft(nLeft);
+    nTimer = setTimeout(Tick, 200);
+  }
+  function PaintLeft(nLeft) {
+    elLeft.textContent = `${nLeft}초`;
+    elLeft.classList.toggle("hurry", nLeft <= 3);
+  }
+  // 보기를 고름 (null = 시간 끝). 한 문제에 한 번만: 틀리거나 시간이 지났으면 지금 사람 벌칙 기록
+  function Answer(strPicked) {
+    if (stQz.strStep !== "ask") {
+      return;
+    }
+    clearTimeout(nTimer);
+    const bLate = stQz.nEndAt && CalcLeftSec(stQz.nEndAt, performance.now()) === 0;   // 폰이 잠깐 꺼졌다 켜진 뒤 누른 경우 등
+    stQz.strPicked = bLate ? null : strPicked;
+    stQz.strStep = "done";
+    const stNow = stQz.arrPs[stQz.nTurn];
+    const stScore = stQz.mapScore.get(stNow) || { nRight: 0, nWrong: 0 };
+    stQz.mapScore.set(stNow, stScore);
+    if (stQz.strPicked === stQz.stQ.strAns) {
+      stScore.nRight++;
+      PlayTone(pAudio, 1320, 0.12, "sine");
+    } else {
+      stScore.nWrong++;
+      PlayTone(pAudio, 90, 0.6, "sawtooth");
+      Vibrate(400);
+      record(stNow, "상식 퀴즈");
+    }
+    Paint();
+  }
+  function Next() {
+    stQz.nTurn = (stQz.nTurn + 1) % stQz.arrPs.length;
+    stQz.strStep = "ready";
+    Paint();
+  }
+  function Paint() {
+    const arrPs = stQz.arrPs;
+    const stNow = arrPs[stQz.nTurn];
+    const stQ = stQz.stQ;
+    const strSec = +selSec.value ? `${selSec.value}초 안에 ` : "";
+    if (arrPs.length < 2) {
+      elCard.replaceChildren(h("p", { class: "note" }, "참가자가 2명 이상이어야 해요"));
+    } else if (stQz.strStep === "ready") {
+      elCard.replaceChildren(h("small", {}, `${selCat.value || "📚 전체"} · ${selLv.value ? `난이도 ${selLv.value}` : "난이도 섞어서"}`),
+        h("strong", { style: `color:${stNow.c}` }, `${stNow.name} 차례`),
+        h("small", {}, `${strSec}1~4번 중 정답 고르기 · 틀리면 벌칙`),
+        h("button", { type: "button", class: "btn primary big", onclick: Ask }, "▶ 문제 열기"));
+    } else {
+      const bAsk = stQz.strStep === "ask";
+      const bRight = stQz.strPicked === stQ.strAns;
+      const nAns = stQz.arrChoices.indexOf(stQ.strAns) + 1;
+      const elChoices = h("div", { class: "quiz-choices" }, stQz.arrChoices.map((strChoice, nIdx) => h("button", {
+        type: "button", class: "btn" + (!bAsk && strChoice === stQ.strAns ? " ok" : !bAsk && strChoice === stQz.strPicked ? " bad" : ""),
+        disabled: !bAsk, onclick: () => Answer(strChoice) }, `${nIdx + 1}. ${strChoice}`)));
+      const arrResult = bAsk ? []
+        : bRight ? [h("strong", {}, "⭕ 정답!")]
+        : [h("strong", {}, h("span", { class: "boom" }, "🍺 "), h("span", { style: `color:${stNow.c}` }, stNow.name), " 당첨!"),
+          h("small", {}, `${stQz.strPicked === null ? "시간 끝!" : "땡!"} 정답은 ${nAns}번 ${stQ.strAns}`)];
+      if (bAsk && stQz.nEndAt) {
+        PaintLeft(CalcLeftSec(stQz.nEndAt, performance.now()));
+      }
+      elCard.replaceChildren(h("small", {}, `${stNow.name} · ${stQ.strCat} · 난이도 ${stQ.strLv}`),
+        h("strong", { class: "quiz-q" }, stQ.strQ),
+        ...(bAsk && stQz.nEndAt ? [elLeft] : []),
+        elChoices, ...arrResult,
+        ...(bAsk ? [] : [h("button", { type: "button", class: "btn primary big", onclick: Next }, `다음: ${arrPs[(stQz.nTurn + 1) % arrPs.length].name} ▶`)]));
+    }
+    elRank.replaceChildren(...arrPs.map(stP => {
+      const stScore = stQz.mapScore.get(stP) || { nRight: 0, nWrong: 0 };
+      return h("li", {}, h("i", { style: `background:${stP.c}` }), `${stP.name} · ⭕${stScore.nRight} ❌${stScore.nWrong}`);
+    }));
+  }
+  selCat.onchange = selLv.onchange = () => {
+    LoadPool();
+    if (stQz.strStep === "ready") {
+      Paint();
+    }
+  };
+  selSec.onchange = () => {
+    if (stQz.strStep === "ready") {
+      Paint();
+    }
+  };
+  btnNew.onclick = Ready;
+  stopGame = () => {
+    clearTimeout(nTimer);
+    pAudio?.close();
+  };
+  LoadPool();
+  Ready();
 };
 
 // ---- 벌칙 통계판: 놀이 당첨 횟수 순위 (오늘의 술상무) ----

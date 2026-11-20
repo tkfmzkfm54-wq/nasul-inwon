@@ -220,7 +220,47 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
     state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("탭 24개 열림 (모임 5·뽑기 8·폰 돌리기 7·대화형 4)", document.querySelectorAll("#tabs button").length, 24);
+    eq("탭 25개 열림 (모임 5·뽑기 8·폰 돌리기 8·대화형 4)", document.querySelectorAll("#tabs button").length, 25);
+
+    // 상식 퀴즈
+    const arrAllQz = CollectQuizPool("", "");
+    const arrBadQz = arrAllQz.filter(stQ => !stQ.strQ || stQ.arrWrong.length !== 3 || new Set([stQ.strAns, ...stQ.arrWrong].filter(Boolean)).size !== 4).map(stQ => stQ.strQ);
+    const arrThinQz = Object.keys(QUIZ_QS).flatMap(strC => QUIZ_LEVELS.filter(strL => (QUIZ_QS[strC][strL] || []).length < 6).map(strL => strC + strL));
+    eq("상식 퀴즈 문제: 보기 4개가 서로 다름·문제 글 안 겹침·카테고리마다 상중하 6문제 이상",
+      [arrBadQz, arrAllQz.length - new Set(arrAllQz.map(stQ => stQ.strQ)).size, arrThinQz], [[], 0, []]);
+    eq("상식 퀴즈 고르기: 카테고리·난이도 거르기, 전체 = 모두",
+      [CollectQuizPool("✍ 맞춤법", "상").every(stQ => stQ.strCat === "✍ 맞춤법" && stQ.strLv === "상"), CollectQuizPool("", "하").every(stQ => stQ.strLv === "하"),
+        Object.keys(QUIZ_QS).reduce((nSum, strC) => nSum + CollectQuizPool(strC, "").length, 0) === arrAllQz.length], [true, true, true]);
+    showTab("quiz");
+    await tick();
+    const elCardQz = () => document.querySelector("#view-game .liar-card");
+    const FindQuizT = () => arrAllQz.find(stQ => stQ.strQ === elCardQz().querySelector(".quiz-q").textContent);
+    const GetChoiceT = bRight => [...elCardQz().querySelectorAll(".quiz-choices .btn")].find(btnC => btnC.textContent.endsWith(". " + FindQuizT().strAns) === bRight);
+    const nTallyQz = L().tally.length;
+    document.querySelector("#view-game select[aria-label='제한 시간']").value = "0";
+    const strFirstQz = elCardQz().querySelector("strong").textContent.replace(" 차례", "");
+    elCardQz().querySelector(".btn.primary").click();
+    const btnWrongQz = GetChoiceT(false);
+    btnWrongQz.click();
+    btnWrongQz.click();   // 두 번 눌러도 한 번만
+    const arrWrongQz = [L().tally.length - nTallyQz, L().tally.at(-1).name, L().tally.at(-1).game, elCardQz().querySelectorAll(".btn.ok").length, elCardQz().querySelectorAll(".btn.bad").length,
+      elCardQz().textContent.includes("당첨"), elCardQz().textContent.includes("null")];
+    elCardQz().querySelector(".btn.primary.big").click();
+    elCardQz().querySelector(".btn.primary").click();
+    GetChoiceT(true).click();
+    const arrRightQz = [L().tally.length - nTallyQz, elCardQz().textContent.includes("정답!"), document.querySelector("#view-game .rank").textContent.includes("⭕1")];
+    eq("상식 퀴즈: 틀리면 그 사람 벌칙 한 번(두 번 눌러도)·정답 초록·오답 빨강, 맞히면 기록 없음",
+      [...arrWrongQz, ...arrRightQz], [1, strFirstQz, "상식 퀴즈", 1, 1, true, false, 1, true, true]);
+    const fnNowQz = performance.now.bind(performance);
+    let nSkipQz = 0;
+    performance.now = () => fnNowQz() + nSkipQz;
+    document.querySelector("#view-game select[aria-label='제한 시간']").value = "10";
+    elCardQz().querySelector(".btn.primary.big").click();
+    elCardQz().querySelector(".btn.primary").click();
+    nSkipQz += 11000;
+    await new Promise(r => setTimeout(r, 250));
+    performance.now = fnNowQz;
+    eq("상식 퀴즈: 시간 끝 = 벌칙, 정답 공개", [L().tally.length - nTallyQz, elCardQz().textContent.includes("시간 끝! 정답은")], [2, true]);
     showTab("balance");
     await tick();
     eq("밸런스 게임: 카드에 null 글자 없음", document.querySelector("#view-game .liar-card").textContent.includes("null"), false);
