@@ -76,6 +76,147 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
     eq("놀이 탭 11개 열림", document.querySelectorAll("#tabs button").length, 11);
+
+    // ---- 클라우드 동기화: 가짜 서버로 시험 (네트워크 안 씀) ----
+    eq("클라우드 안 켜면 클라이언트 없음·버튼 숨김", [g_stCloud.pClient, $("#cloudBtn").hidden], [null, true]);
+    const pReal = supabase.createClient("https://example.supabase.co", "sb_publishable_test");   // 붙인 라이브러리에 쓰는 함수가 다 있는지 (요청은 안 보냄)
+    eq("supabase-js 함수 모양", [typeof pReal.from("app_state").select("rev").eq("id", "main").maybeSingle, typeof pReal.from("app_state").select("data, rev").eq("id", "main").single,
+      typeof pReal.from("app_state").update({}).eq("id", "main").eq("rev", 1).select, typeof pReal.from("app_state").insert, typeof pReal.auth.signInWithPassword,
+      typeof pReal.auth.signOut, typeof pReal.auth.onAuthStateChange], Array(7).fill("function"));
+
+    eq("비교는 키 순서 무시", IsSame({ a: 1, b: { c: 2, d: [1, { e: 3, f: 4 }] } }, { b: { d: [1, { f: 4, e: 3 }], c: 2 }, a: 1 }), true);
+    const ids = a => a.map(o => o.id).join("");
+    eq("합치기: 내가 정렬 + 다른 폰 추가", ids(MergeValue([{ id: "a" }, { id: "b" }, { id: "c" }], [{ id: "c" }, { id: "a" }, { id: "b" }], [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }])), "cabd");
+    eq("합치기: 양쪽 추가 = 다른 폰 것 다음 내 것", ids(MergeValue([{ id: "a" }], [{ id: "a" }, { id: "m" }], [{ id: "a" }, { id: "t" }])), "atm");
+    eq("합치기: 내가 지움 + 다른 폰이 고침 = 지움", MergeValue([{ id: "a" }, { id: "b", n: 1 }], [{ id: "a" }], [{ id: "a" }, { id: "b", n: 2 }]), [{ id: "a" }]);
+    eq("합치기: 같은 칸을 둘 다 고침 = 내 것", MergeValue({ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 5 }), { x: 2, y: 5 });
+    eq("합치기: 벌칙 기록 양쪽 추가", MergeValue([{ n: 1 }], [{ n: 1 }, { n: 2 }], [{ n: 1 }, { n: 3 }]), [{ n: 1 }, { n: 3 }, { n: 2 }]);
+
+    // 가짜 서버: 한 줄(row). 돌려줄 때 jsonb처럼 키 순서를 바꿈
+    const srv = { row: null, calls: 0, offline: false, beforeUpdate: null, signOutArg: null };
+    const Jsonb = v => JSON.parse(GetCanonJson(v));
+    const fakeFrom = () => {
+      const q = { op: "select", cols: "", ret: "", conds: {}, vals: null };
+      const pick = cols => Object.fromEntries(cols.split(",").map(c => c.trim()).map(c => [c, Jsonb(srv.row[c])]));
+      const run = () => {
+        srv.calls++;
+        if (srv.offline) {
+          return { data: null, error: { message: "Failed to fetch" } };
+        }
+        if (q.op === "update" && srv.beforeUpdate) {
+          const fn = srv.beforeUpdate;
+          srv.beforeUpdate = null;
+          fn();
+        }
+        const hit = !!srv.row && Object.entries(q.conds).every(([k, v]) => srv.row[k] === v);
+        if (q.op === "insert") {
+          if (srv.row) {
+            return { error: { code: "23505", message: "duplicate key" } };
+          }
+          srv.row = Jsonb(q.vals);
+          return { error: null };
+        }
+        if (q.op === "update") {
+          if (!hit) {
+            return { data: [], error: null };
+          }
+          Object.assign(srv.row, Jsonb(q.vals));
+          return { data: [pick(q.ret)], error: null };
+        }
+        return { data: hit ? pick(q.cols) : null, error: null };
+      };
+      const ch = {
+        select(c) { if (q.op === "select") { q.cols = c; } else { q.ret = c; } return ch; },
+        insert(v) { q.op = "insert"; q.vals = v; return ch; },
+        update(v) { q.op = "update"; q.vals = v; return ch; },
+        eq(k, v) { q.conds[k] = v; return ch; },
+        maybeSingle() { return ch; },
+        single() { return ch; },
+        then(ok, no) { return new Promise(r => setTimeout(r, 5)).then(run).then(ok, no); },
+      };
+      return ch;
+    };
+    let authCb = null;
+    const fakeClient = { from: fakeFrom, auth: {
+      onAuthStateChange(cb) { authCb = cb; setTimeout(() => cb("INITIAL_SESSION", null)); return { data: { subscription: { unsubscribe() {} } } }; },
+      async signInWithPassword({ email, password }) {
+        if (password !== "pw") {
+          return { error: { message: "Invalid login credentials" } };
+        }
+        setTimeout(() => authCb("SIGNED_IN", { user: { email } }));
+        return { data: {}, error: null };
+      },
+      async signOut(arg) { srv.signOutArg = arg; setTimeout(() => authCb("SIGNED_OUT", null)); return { error: null }; } } };
+    g_fnCreateClient = () => fakeClient;
+    const settle = async () => { await tick(); for (let i = 0; i < 50 && g_stCloud.bBusy; i++) { await tick(); } await tick(); };
+    const LL = id => state.lists.find(l => l.id === id);
+    const other = fn => { const dd = JSON.parse(JSON.stringify(srv.row.data)); fn(dd); srv.row.data = dd; srv.row.rev++; };   // 다른 폰이 서버에 올림
+
+    $("#tabs button").click(); await tick();
+    state = { cur: "l1", rig: { on: true, names: "가", w: 2 }, surprise: { armed: false }, acct: "국민 1",
+      lists: [{ id: "l1", name: "1월", title: "1월", cols: [{ id: "c1", name: "입금", kind: "check" }], people: [P("a", "가", {}), P("b", "나", {})] }] };
+    save();
+    eq("클라우드 안 켜면 저장해도 요청 없음", srv.calls, 0);
+    await StartCloudAsync("https://fake.supabase.co", "sb_publishable_x"); clearInterval(g_stCloud.nTimer); await tick();
+    eq("켜면 버튼 보임·로그인 필요", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, srv.calls], [false, "☁ 로그인", 0]);
+    $("#cloudBtn").click(); await tick();
+    d.querySelector("#f_email").value = "a@b.c"; d.querySelector("#f_pw").value = "틀림"; submit(); await settle();
+    eq("틀린 비밀번호", [g_stCloud.bLogin, $("#cloudBtn").textContent, srv.row], [false, "☁ 로그인", null]);
+    $("#cloudBtn").click(); await tick();
+    d.querySelector("#f_email").value = "a@b.c"; d.querySelector("#f_pw").value = "pw"; submit(); await settle();
+    eq("첫 연결: 이 폰 명단을 서버에 만듦 (이 폰 값은 안 올림)", [srv.row.rev, Object.keys(srv.row.data).sort(), srv.row.data.lists[0].people.length, $("#cloudBtn").textContent],
+      [1, ["acct", "lists"], 2, "☁ 저장됨"]);
+
+    LL("l1").people[0].v.c1 = true; save(); await settle();
+    eq("체크하면 올라감", [srv.row.rev, srv.row.data.lists[0].people[0].v.c1], [2, true]);
+    state.lists.push({ id: "l2", name: "2월", title: "2월", cols: [], people: [] }); save(); await settle();
+    const nCalls0 = srv.calls; select("l2"); await settle();
+    eq("보는 명단만 바꾸면 요청 없음", [srv.calls - nCalls0, srv.row.rev], [0, 3]);
+    select("l1"); await settle();
+
+    other(dd => dd.lists[0].people.push({ id: "c", name: "다", v: {} }));
+    await SyncCloudAsync(); await settle();
+    eq("다른 폰 추가 반영 · 이 폰 값 유지", [LL("l1").people.map(p => p.name), state.cur, state.rig.names, state.surprise.armed], [["가", "나", "다"], "l1", "가", false]);
+
+    srv.offline = true;
+    LL("l1").people[1].v.c1 = true; save(); await settle();
+    eq("연결 끊김 표시", $("#cloudBtn").textContent, "☁ 연결 안 됨");
+    other(dd => { dd.lists[0].people[0].name = "가가"; dd.lists[0].tally = [{ name: "다", game: "x", t: 1 }]; });
+    LL("l1").tally = [{ name: "나", game: "y", t: 2 }]; save(); await settle();
+    srv.offline = false; await SyncCloudAsync(); await settle();
+    eq("끊긴 동안 양쪽 변경 다 살림", [LL("l1").people.map(p => p.name + (p.v.c1 ? "✔" : "")), LL("l1").tally.map(t => t.name), IsSame(srv.row.data, GetShared(state)), $("#cloudBtn").textContent],
+      [["가가✔", "나✔", "다"], ["다", "나"], true, "☁ 저장됨"]);
+
+    srv.beforeUpdate = () => other(dd => dd.lists[0].people[2].v.c1 = true);   // 올리는 순간 다른 폰이 먼저 올림
+    LL("l1").title = "1월 정모"; save(); await settle();
+    eq("올리다 판이 바뀌면 받아 합쳐 다시 올림", [LL("l1").title, LL("l1").people[2].v.c1, srv.row.data.lists[0].title, srv.row.data.lists[0].people[2].v.c1, g_stCloud.nRev === srv.row.rev],
+      ["1월 정모", true, "1월 정모", true, true]);
+
+    render(); document.querySelector("#tbl .colhead").click(); await tick();
+    other(dd => dd.lists[0].people[1].name = "나나");
+    await SyncCloudAsync(); await settle();
+    eq("창 열린 동안은 다른 폰 변경 미룸", [d.open, $("#cloudBtn").textContent, LL("l1").people[1].name], [true, "☁ 창 닫으면 맞춤", "나"]);
+    d.querySelector("#f_name").value = "입금여부"; submit(); await settle(); await settle();
+    eq("창 닫으면 창에서 고친 것 + 다른 폰 변경 둘 다", [LL("l1").cols[0].name, LL("l1").people[1].name, srv.row.data.lists[0].cols[0].name, srv.row.data.lists[0].people[1].name, $("#cloudBtn").textContent],
+      ["입금여부", "나나", "입금여부", "나나", "☁ 저장됨"]);
+
+    g_stCloud.stBase = null; g_stCloud.nRev = 0;   // 처음 연결하는 폰처럼
+    LL("l1").title = "이 폰의 옛 제목";
+    state.lists.push({ id: "l9", name: "이 폰에만", title: "x", cols: [], people: [P("z", "자", {})] });
+    save(); await settle();
+    eq("처음 맞추는 폰: 서버 것 우선 + 이 폰에만 있던 명단 추가", [LL("l1").title, state.lists.map(l => l.id), srv.row.data.lists.map(l => l.id), $("#toast").textContent],
+      ["1월 정모", ["l1", "l2", "l9"], ["l1", "l2", "l9"], "이 폰에만 있던 명단 1개를 클라우드에 합쳤어요."]);
+    eq("맞춘 판 번호가 이 폰에 저장됨", JSON.parse(fake["nasul-inwon-cloud"]).rev, srv.row.rev);
+
+    const good = srv.row.data;
+    other(dd => dd.lists = [{ id: "x" }]);
+    await SyncCloudAsync(); await settle();
+    eq("서버 내용이 깨졌으면 안 덮음", [$("#cloudBtn").textContent, state.lists.length], ["☁ 연결 안 됨", 3]);
+    srv.row.data = good;
+
+    await SyncCloudAsync(); await settle();
+    $("#cloudBtn").click(); await tick(); d.querySelector(".btn.left").click(); await settle();
+    eq("로그아웃은 이 폰만", [srv.signOutArg, g_stCloud.bLogin, $("#cloudBtn").textContent, state.lists.length], [{ scope: "local" }, false, "☁ 로그인", 3]);
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
   document.querySelector("main").hidden = true;
