@@ -409,6 +409,13 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .notice strong { font-size: 17px; }
 .notice a { color: var(--accent); font-weight: 700; }
 .notice .btn { justify-self: start; }
+/* 모임 통장: 날짜·구분·금액·내용 한 줄 (좁으면 줄바꿈), 금액은 들어옴 초록·나감 빨강 */
+.bank-sum .chip b { font-size: 18px; overflow-wrap: anywhere; }   /* 금액이 길어 폰 폭에서 넘치지 않게 */
+.bank-form .bank-amt { width: 7.5em; }
+.bank-form .bank-memo { flex: 1; min-width: 8em; }
+.bank-in, .bank-out { font-weight: 700; text-align: right !important; white-space: nowrap; }
+.bank-in { color: var(--ok); }
+.bank-out { color: var(--warn); }
 
 /* 폰 돌리기 놀이: 업다운 · 폭탄 돌리기 · 반응속도 · 라이어 */
 .pass-wrap { justify-items: center; text-align: center; }
@@ -509,6 +516,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button type="button" data-grp="talk" data-tab="finger" aria-selected="false">🖐 손병호 게임</button>
         <button type="button" data-grp="meet" data-tab="seats" aria-selected="false">🪑 자리배치</button>
         <button type="button" data-grp="meet" data-tab="stats" aria-selected="false">🍺 벌칙 통계</button>
+        <button type="button" data-grp="meet" data-tab="bank" aria-selected="false">💰 모임 통장</button>
       </nav>
       <div id="view-list" class="stack">
       <form id="addForm" autocomplete="off">
@@ -524,6 +532,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button class="btn" id="copyMiss" type="button">안 한 사람 복사</button>
         <button class="btn" id="fee" type="button">💰 회비 정산</button>
         <button class="btn" id="noticeBtn" type="button">📢 정모 공지</button>
+        <button class="btn" id="splitBtn" type="button">🧮 N빵</button>
         <button class="btn" id="sortBtn" type="button">↕ 정렬</button>
         <button class="btn" id="fromOld" type="button">지난 명단에서</button>
         <span class="grow"></span>
@@ -1614,6 +1623,85 @@ $("#noticeBtn").addEventListener("click", async () => {
   }
   save();
 });
+
+// ---- 2차·실비 N빵: 총액 ÷ (고른 사람 + 명단 밖 인원), 올림 단위로 맞추고 남는 돈을 알려 줌. 저장 안 함(글만 복사) ----
+const FormatWon = nWon => nWon.toLocaleString("ko-KR") + "원";
+
+/**
+ * @param nTotal 총액(원), nPeople 나눌 사람 수(1 이상), nUnit 올림 단위(원, 1 = 원 단위)
+ * @return { nEach: 1인 금액, nLeft: 다 걷으면 남는 돈 }
+ */
+function CalcSplit(nTotal, nPeople, nUnit) {
+  const nEach = Math.ceil(nTotal / (nPeople * nUnit)) * nUnit;   // 나눗셈 한 번: 딱 나눠떨어질 때 소수 오차로 한 단위 더 올리지 않게
+  return { nEach, nLeft: nEach * nPeople - nTotal };
+}
+
+function GetSplitText({ strWhat, nTotal, arrNames, nExtra, nUnit, strAcct }) {
+  const nPeople = arrNames.length + nExtra;
+  const stSplit = CalcSplit(nTotal, nPeople, nUnit);
+  const strWho = [arrNames.join(", "), nExtra ? `명단 밖 ${nExtra}명` : ""].filter(Boolean).join(" + ");
+  return [`${strWhat} N빵`, `총 ${FormatWon(nTotal)} ÷ ${nPeople}명 = 1인 ${FormatWon(stSplit.nEach)}`,
+    ...(stSplit.nLeft ? [`(${FormatWon(nUnit)} 단위 올림 · 남는 돈 ${FormatWon(stSplit.nLeft)})`] : []),
+    ...(strAcct ? [`보낼 곳: ${strAcct}`] : []),
+    `참여: ${strWho}`].join("\n");
+}
+
+$("#splitBtn").addEventListener("click", async () => {
+  const arrAll = (L() ? live(L()) : []).map(stP => stP.name);
+  const v = await ask({ title: "🧮 N빵 (2차·실비)", ok: "계산",
+    fields: [{ id: "what", label: "무엇 (예: 2차, 노래방)", value: "2차" },
+             { id: "amt", type: "number", label: "총액 (원)" },
+             { id: "who", type: "chips", label: "참여한 사람 (눌러서 빼기/넣기)", options: arrAll, value: arrAll },
+             { id: "extra", type: "number", label: "명단 밖 인원 (명, 비워도 돼요)" },
+             { id: "unit", type: "select", label: "1인 금액 올림", options: [["100", "100원 단위"], ["1000", "1,000원 단위"], ["1", "올림 없음"]] },
+             { id: "acct", label: "보낼 계좌 (낸 사람, 비워도 돼요)" }],
+    validate: v => !(+v.amt > 0) ? "총액을 입력해 주세요."
+      : !Number.isInteger(+v.extra) || +v.extra < 0 ? "명단 밖 인원은 0 이상 정수로 넣어 주세요."
+      : v.who.length + +v.extra < 1 ? "나눌 사람을 한 명 이상 골라 주세요."
+      : null });
+  if (!v) {
+    return;
+  }
+  const strText = GetSplitText({ strWhat: v.what || "N빵", nTotal: Math.round(+v.amt), arrNames: v.who, nExtra: +v.extra, nUnit: +v.unit, strAcct: v.acct });
+  if (await ask({ title: "🧮 N빵", ok: "📋 복사", fields: [{ type: "note", text: strText }] })) {
+    copyText(strText);
+  }
+});
+
+// ---- 모임 통장 장부: 들어온 돈·나간 돈과 잔액. 모든 명단 공통(state.ledger), 서버에 올라가 누구나 볼 수 있음 ----
+// 기록 하나 = { id, date: "YYYY-MM-DD", amt: 원(들어옴 +, 나감 −), memo }. 넣은 순서로 저장(합치기가 id로 맞춤), 보일 때만 날짜순
+const GetLedger = () => (state.ledger || []).filter(stRec => Number.isFinite(stRec?.amt) && typeof stRec.date === "string");   // 깨진 기록이 화면을 멈추지 않게
+
+// 잔액과 그 달 들어옴·나감. strMonth = "YYYY-MM"
+function CalcLedger(arrLedger, strMonth) {
+  const stSum = { nBalance: 0, nMonthIn: 0, nMonthOut: 0 };
+  for (const stRec of arrLedger) {
+    stSum.nBalance += stRec.amt;
+    if (!stRec.date.startsWith(strMonth)) {
+      continue;
+    }
+    if (stRec.amt > 0) {
+      stSum.nMonthIn += stRec.amt;
+    } else {
+      stSum.nMonthOut -= stRec.amt;
+    }
+  }
+  return stSum;
+}
+
+// 보이는 순서: 날짜 최근 것 먼저, 같은 날이면 나중에 넣은 것 먼저
+const SortLedger = arrLedger => [...arrLedger].reverse().sort((stA, stB) => stB.date.localeCompare(stA.date));
+
+// "11/20 ➕ 11월 회비 200,000원"
+const GetLedgerLine = stRec => `${stRec.date.slice(5).replace("-", "/")} ${stRec.amt > 0 ? "➕" : "➖"} ${stRec.memo || ""} ${FormatWon(Math.abs(stRec.amt))}`;
+
+// 카톡에 붙여 넣을 통장 현황 (최근 10건)
+function GetLedgerText(arrLedger, dtNow) {
+  const stSum = CalcLedger(arrLedger, dtNow.toLocaleDateString("sv").slice(0, 7));
+  return [`모임 통장 (${dtNow.getMonth() + 1}월 ${dtNow.getDate()}일 기준)`, `잔액 ${FormatWon(stSum.nBalance)}`,
+    `이번 달 들어옴 ${FormatWon(stSum.nMonthIn)} · 나감 ${FormatWon(stSum.nMonthOut)}`,
+    ...(arrLedger.length ? ["", "최근 기록", ...SortLedger(arrLedger).slice(0, 10).map(GetLedgerLine)] : [])].join("\n");
+}
 
 // ---- 참석 통계: 모든 명단을 모아 사람별 참석 횟수(취소 제외)와 마지막으로 나온 명단. 같은 사람 = 이름이 같은 사람 ----
 function statsRows() {
@@ -3665,6 +3753,52 @@ GAMES.stats = () => {
     if (v) { list.tally = []; save(); GAMES.stats(); }
   };
 };
+
+// ---- 모임 통장 화면: 잔액·이번 달 합계, 기록 추가·지우기 (보기 전용이면 save()가 되돌림) ----
+GAMES.bank = () => {
+  const arrLedger = GetLedger();
+  const strToday = new Date().toLocaleDateString("sv");
+  const stSum = CalcLedger(arrLedger, strToday.slice(0, 7));
+  const inpDate = h("input", { type: "date", class: "sel", value: strToday, "aria-label": "날짜" });
+  const selKind = h("select", { class: "sel", "aria-label": "들어옴·나감" }, h("option", { value: "1" }, "➕ 들어옴"), h("option", { value: "-1" }, "➖ 나감"));
+  const inpAmt = h("input", { type: "number", class: "sel bank-amt", min: 1, step: 1, placeholder: "금액(원)", "aria-label": "금액 (원)" });
+  const inpMemo = h("input", { class: "sel bank-memo", maxlength: 40, placeholder: "내용 (예: 11월 회비)", "aria-label": "내용" });
+  const frmAdd = h("form", { class: "bar bank-form" }, inpDate, selKind, inpAmt, inpMemo, h("button", { type: "submit", class: "btn primary" }, "추가"));
+  const btnCopy = h("button", { type: "button", class: "btn", onclick: () => copyText(GetLedgerText(arrLedger, new Date())) }, "📋 글로 복사");
+  const elRows = arrLedger.length
+    ? h("div", { class: "tablewrap" }, h("table", { class: "stat-tbl" }, h("tbody", {}, SortLedger(arrLedger).map(stRec => h("tr", {},
+      h("td", { class: "num" }, stRec.date.slice(5).replace("-", "/")),
+      h("td", {}, stRec.memo || ""),
+      h("td", { class: stRec.amt > 0 ? "bank-in" : "bank-out" }, (stRec.amt > 0 ? "+" : "−") + FormatWon(Math.abs(stRec.amt))),
+      h("td", { class: "act" }, h("button", { type: "button", class: "del", "aria-label": `${stRec.memo || ""} 지우기`, onclick: () => RemoveLedgerAsync(stRec) }, "✕")))))))
+    : h("p", { class: "hint" }, "아직 기록이 없어요. 회비가 들어오거나 돈을 쓰면 위에 적어 두세요.");
+  mount("💰 모임 통장", [btnCopy], h("div", { class: "stack" },
+    h("div", { class: "stats bank-sum" },
+      h("span", { class: "chip lead" }, "잔액", h("b", {}, FormatWon(stSum.nBalance))),
+      h("span", { class: "chip" }, "이번 달 들어옴", h("b", {}, FormatWon(stSum.nMonthIn))),
+      h("span", { class: "chip" }, "이번 달 나감", h("b", {}, FormatWon(stSum.nMonthOut)))),
+    frmAdd, elRows), null, false);
+  frmAdd.onsubmit = e => {
+    e.preventDefault();
+    const nAmt = Math.round(+inpAmt.value);
+    if (!(nAmt > 0) || !inpDate.value) {
+      toast("날짜와 금액을 넣어 주세요.");
+      return;
+    }
+    state.ledger = [...arrLedger, { id: newId("m"), date: inpDate.value, amt: nAmt * +selKind.value, memo: inpMemo.value.trim() }];
+    save();
+    GAMES.bank();
+  };
+};
+async function RemoveLedgerAsync(stRec) {
+  const v = await ask({ title: "통장 기록 지우기", ok: "지우기", danger: true, fields: [{ type: "note", text: `${GetLedgerLine(stRec)}\n이 기록을 지울까요?` }] });
+  if (!v) {
+    return;
+  }
+  state.ledger = GetLedger().filter(stItem => stItem.id !== stRec.id);
+  save();
+  GAMES.bank();
+}
 
 // ---- 자리배치: 테이블 수만큼 고르게 랜덤 ----
 GAMES.seats = () => {

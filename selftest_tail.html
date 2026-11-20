@@ -106,6 +106,50 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     d.querySelector(".actions .left").click();
     await tick();
     eq("공지 내리기", ["notice" in state, $("#notice").hidden], [false, true]);
+
+    // N빵·모임 통장
+    eq("N빵: 올림 단위·남는 돈 (딱 나눠떨어지면 그대로)",
+      [CalcSplit(87000, 6, 100), CalcSplit(100000, 3, 1), CalcSplit(100000, 3, 1000), CalcSplit(10000, 3, 100), CalcSplit(30000, 3, 1000)],
+      [{ nEach: 14500, nLeft: 0 }, { nEach: 33334, nLeft: 2 }, { nEach: 34000, nLeft: 2000 }, { nEach: 3400, nLeft: 200 }, { nEach: 10000, nLeft: 0 }]);
+    eq("N빵 글", GetSplitText({ strWhat: "2차", nTotal: 10000, arrNames: ["가", "나"], nExtra: 1, nUnit: 100, strAcct: "카카오 1" }).split("\n"),
+      ["2차 N빵", "총 10,000원 ÷ 3명 = 1인 3,400원", "(100원 단위 올림 · 남는 돈 200원)", "보낼 곳: 카카오 1", "참여: 가, 나 + 명단 밖 1명"]);
+    const arrLedgerT = [{ id: "m1", date: "2026-10-30", amt: 50000, memo: "10월 회비" }, { id: "m2", date: "2026-11-02", amt: 200000, memo: "11월 회비" },
+      { id: "m3", date: "2026-11-02", amt: -77000, memo: "2차" }];
+    eq("통장: 잔액·이번 달 들어옴·나감", CalcLedger(arrLedgerT, "2026-11"), { nBalance: 173000, nMonthIn: 200000, nMonthOut: 77000 });
+    eq("통장 글 (최근 먼저, 같은 날은 나중에 넣은 것 먼저)", GetLedgerText(arrLedgerT, new Date(2026, 10, 20)).split("\n"),
+      ["모임 통장 (11월 20일 기준)", "잔액 173,000원", "이번 달 들어옴 200,000원 · 나감 77,000원", "", "최근 기록", "11/02 ➖ 2차 77,000원", "11/02 ➕ 11월 회비 200,000원", "10/30 ➕ 10월 회비 50,000원"]);
+    $("#splitBtn").click();
+    await tick();
+    d.querySelector("#f_amt").value = "10000";
+    const arrChipsT = [...d.querySelectorAll(".who-chip")];
+    arrChipsT[0].click();
+    submit();
+    await tick();
+    eq("N빵 창: 한 명 빼고 계산", d.querySelector(".note")?.textContent.split("\n").slice(1, 2),
+      [`총 10,000원 ÷ ${arrChipsT.length - 1}명 = 1인 ${FormatWon(CalcSplit(10000, arrChipsT.length - 1, 100).nEach)}`]);
+    d.close();
+    await tick();
+    showTab("bank");
+    await tick();
+    const AddLedgerT = async (strKind, strAmt, strMemo) => {
+      document.querySelector("#view-game .bank-form select").value = strKind;
+      document.querySelector("#view-game .bank-amt").value = strAmt;
+      document.querySelector("#view-game .bank-memo").value = strMemo;
+      document.querySelector("#view-game .bank-form").requestSubmit();
+      await tick();
+    };
+    await AddLedgerT("1", "50000", "회비");
+    await AddLedgerT("-1", "12000", "안주");
+    const GetBankChipsT = () => [...document.querySelectorAll("#view-game .bank-sum b")].map(elB => elB.textContent);
+    const arrBankT = [GetBankChipsT(), document.querySelectorAll("#view-game .bank-out").length, state.ledger.length];
+    document.querySelector("#view-game .bank-in").closest("tr").querySelector(".del").click();
+    await tick();
+    submit();
+    await tick();
+    eq("통장 화면: 들어옴·나감 추가 → 잔액, 지우기",
+      [...arrBankT, GetBankChipsT(), state.ledger.map(stRec => stRec.memo)],
+      [["38,000원", "50,000원", "12,000원"], 1, 2, ["-12,000원", "0원", "12,000원"], ["안주"]]);
+    delete state.ledger;
     const rp = ["가", "나", "다", "라"].map(name => ({ name })), cnt = rg => { state.rig = rg; let n = 0; for (let i = 0; i < 2000; i++) n += wpick(rp) === 2; return n; };
     eq("몰아주기 100 = 무조건", cnt({ on: true, names: "다", w: 100 }), 2000);
     eq("몰아주기 100, 대상 빠지면 골고루", (() => { state.rig = { on: true, names: "없음", w: 100 }; const s = new Set(); for (let i = 0; i < 200; i++) s.add(wpick(rp)); return s.size; })(), 4);
@@ -173,7 +217,7 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
     state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("탭 23개 열림 (모임 4·뽑기 8·폰 돌리기 7·대화형 4)", document.querySelectorAll("#tabs button").length, 23);
+    eq("탭 24개 열림 (모임 5·뽑기 8·폰 돌리기 7·대화형 4)", document.querySelectorAll("#tabs button").length, 24);
     showTab("balance");
     await tick();
     eq("밸런스 게임: 카드에 null 글자 없음", document.querySelector("#view-game .liar-card").textContent.includes("null"), false);
