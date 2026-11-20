@@ -195,7 +195,9 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
         },
         async signOut(stOption) {
           stServer.stSignOutArg = stOption;
-          setTimeout(() => fnAuthChanged("SIGNED_OUT", null));
+          if (stOption?.scope !== "others") {   // others = 다른 기기만 끊음, 이 기기는 그대로
+            setTimeout(() => fnAuthChanged("SIGNED_OUT", null));
+          }
           return { error: null };
         },
         async updateUser(stAttr) {
@@ -342,14 +344,29 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
 
     $("#cloudBtn").click();
     await tick();
-    d.querySelector("#f_newpw").value = "12345";
+    d.querySelector("#f_newpw").value = "newpw123";
     submit();
     await tick();
-    eq("새 비밀번호 6자 미만은 거부", [d.open, stServer.strNewPw], [true, undefined]);
-    d.querySelector("#f_newpw").value = "newpw1";
+    eq("비밀번호 바꾸기: 현재 비밀번호 없으면 거부", [d.open, stServer.strNewPw], [true, undefined]);
+    d.querySelector("#f_curpw").value = "pw";
+    d.querySelector("#f_newpw").value = "1234567";
+    submit();
+    await tick();
+    eq("비밀번호 바꾸기: 새 비밀번호 8자 미만은 거부", [d.open, stServer.strNewPw], [true, undefined]);
+    d.querySelector("#f_curpw").value = "틀림";
+    d.querySelector("#f_newpw").value = "newpw123";
     submit();
     await WaitSync();
-    eq("앱에서 마스터 비밀번호 바꾸기", [d.open, stServer.strNewPw, $("#toast").textContent.startsWith("마스터 비밀번호를 바꿨어요")], [false, "newpw1", true]);
+    eq("비밀번호 바꾸기: 현재 비밀번호 틀리면 안 바꿈", [stServer.strNewPw, $("#toast").textContent.startsWith("현재 비밀번호가 맞지 않아요")], [undefined, true]);
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector("#f_curpw").value = "pw";
+    d.querySelector("#f_newpw").value = "newpw123";
+    submit();
+    await WaitSync();
+    eq("앱에서 마스터 비밀번호 바꾸기 + 다른 기기 로그아웃",
+      [d.open, stServer.strNewPw, stServer.stSignOutArg, g_stCloud.bLogin, $("#toast").textContent.startsWith("마스터 비밀번호를 바꿨어요")],
+      [false, "newpw123", { scope: "others" }, true, true]);
 
     $("#cloudBtn").click();
     await tick();

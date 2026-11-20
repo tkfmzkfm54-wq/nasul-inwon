@@ -883,21 +883,41 @@ async function LoginCloudAsync() {
   // 성공하면 onAuthStateChange(SIGNED_IN)가 맞추기를 시작함
 }
 
+// 마스터 비밀번호 바꾸기: 로그인된 폰을 남이 집어도 못 바꾸게 현재 비밀번호를 다시 확인하고,
+// 바꾼 뒤엔 다른 기기의 로그인을 끊음 (예전 비밀번호로 로그인해 둔 폰이 계속 고치지 못하게)
+async function ChangeMasterPasswordAsync(strCurPw, strNewPw) {
+  const pAuth = g_stCloud.pClient.auth;
+  const { error: errCur } = await pAuth.signInWithPassword({ email: CLOUD_MASTER_EMAIL, password: strCurPw });
+  if (errCur) {
+    toast("현재 비밀번호가 맞지 않아요. 비밀번호를 바꾸지 않았어요.");
+    return;
+  }
+  const { error: errPw } = await pAuth.updateUser({ password: strNewPw });
+  if (errPw) {
+    toast(`비밀번호를 바꾸지 못했어요: ${errPw.message}`);
+    return;
+  }
+  await pAuth.signOut({ scope: "others" });
+  toast("마스터 비밀번호를 바꿨어요. 다른 기기는 로그아웃됐어요.");
+}
+
 $("#cloudBtn").addEventListener("click", async () => {
   if (!g_stCloud.bLogin) {
     return LoginCloudAsync();
   }
   const stInput = await ask({ title: "☁ 클라우드", ok: "지금 맞추기", extra: "로그아웃",
     fields: [{ type: "note", text: `로그인: 마스터\n상태: ${CLOUD_STATUS_TEXT[g_stCloud.strState]}\n서버 판 번호: ${g_stCloud.nRev}` },
-             { id: "newpw", type: "password", label: "새 비밀번호 (바꿀 때만 넣기, 6자 이상)" }],
-    validate: stValue => !stValue.newpw || stValue.newpw.length >= 6 ? null : "새 비밀번호는 6자 이상으로 넣어 주세요." });
+             { id: "curpw", type: "password", label: "비밀번호 바꾸기: 현재 비밀번호" },
+             { id: "newpw", type: "password", label: "새 비밀번호 (8자 이상)" }],
+    validate: stValue => !stValue.newpw && !stValue.curpw ? null
+      : !stValue.curpw ? "현재 비밀번호를 넣어 주세요."
+      : stValue.newpw.length < 8 ? "새 비밀번호는 8자 이상으로 넣어 주세요." : null });
   if (!stInput) {
     return;
   }
   if (!stInput.extra) {
     if (stInput.newpw) {
-      const { error: errPw } = await g_stCloud.pClient.auth.updateUser({ password: stInput.newpw });
-      toast(errPw ? `비밀번호를 바꾸지 못했어요: ${errPw.message}` : "마스터 비밀번호를 바꿨어요. 다른 폰도 다음 로그인부터 새 비밀번호예요.");
+      await ChangeMasterPasswordAsync(stInput.curpw, stInput.newpw);
     }
     return SyncCloudAsync();
   }
