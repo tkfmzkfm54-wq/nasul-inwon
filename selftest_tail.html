@@ -79,144 +79,264 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
 
     // ---- 클라우드 동기화: 가짜 서버로 시험 (네트워크 안 씀) ----
     eq("클라우드 안 켜면 클라이언트 없음·버튼 숨김", [g_stCloud.pClient, $("#cloudBtn").hidden], [null, true]);
-    const pReal = supabase.createClient("https://example.supabase.co", "sb_publishable_test");   // 붙인 라이브러리에 쓰는 함수가 다 있는지 (요청은 안 보냄)
-    eq("supabase-js 함수 모양", [typeof pReal.from("app_state").select("rev").eq("id", "main").maybeSingle, typeof pReal.from("app_state").select("data, rev").eq("id", "main").single,
-      typeof pReal.from("app_state").update({}).eq("id", "main").eq("rev", 1).select, typeof pReal.from("app_state").insert, typeof pReal.auth.signInWithPassword,
-      typeof pReal.auth.signOut, typeof pReal.auth.onAuthStateChange], Array(7).fill("function"));
+    // 붙인 라이브러리에 쓰는 함수가 다 있는지 (만들기만 하고 요청은 안 보냄)
+    const pReal = supabase.createClient("https://example.supabase.co", "sb_publishable_test");
+    eq("supabase-js 함수 모양", [
+      typeof pReal.from("app_state").select("rev").eq("id", "main").maybeSingle,
+      typeof pReal.from("app_state").select("data, rev").eq("id", "main").single,
+      typeof pReal.from("app_state").update({}).eq("id", "main").eq("rev", 1).select,
+      typeof pReal.from("app_state").insert,
+      typeof pReal.auth.signInWithPassword,
+      typeof pReal.auth.signOut,
+      typeof pReal.auth.onAuthStateChange], Array(7).fill("function"));
 
+    // 합치기 단위 시험
+    const GetIds = arrItems => arrItems.map(stItem => stItem.id).join("");
     eq("비교는 키 순서 무시", IsSame({ a: 1, b: { c: 2, d: [1, { e: 3, f: 4 }] } }, { b: { d: [1, { f: 4, e: 3 }], c: 2 }, a: 1 }), true);
-    const ids = a => a.map(o => o.id).join("");
-    eq("합치기: 내가 정렬 + 다른 폰 추가", ids(MergeValue([{ id: "a" }, { id: "b" }, { id: "c" }], [{ id: "c" }, { id: "a" }, { id: "b" }], [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }])), "cabd");
-    eq("합치기: 양쪽 추가 = 다른 폰 것 다음 내 것", ids(MergeValue([{ id: "a" }], [{ id: "a" }, { id: "m" }], [{ id: "a" }, { id: "t" }])), "atm");
+    eq("합치기: 내가 정렬 + 다른 폰 추가",
+      GetIds(MergeValue([{ id: "a" }, { id: "b" }, { id: "c" }], [{ id: "c" }, { id: "a" }, { id: "b" }], [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }])), "cabd");
+    eq("합치기: 양쪽 추가 = 다른 폰 것 다음 내 것", GetIds(MergeValue([{ id: "a" }], [{ id: "a" }, { id: "m" }], [{ id: "a" }, { id: "t" }])), "atm");
     eq("합치기: 내가 지움 + 다른 폰이 고침 = 지움", MergeValue([{ id: "a" }, { id: "b", n: 1 }], [{ id: "a" }], [{ id: "a" }, { id: "b", n: 2 }]), [{ id: "a" }]);
     eq("합치기: 같은 칸을 둘 다 고침 = 내 것", MergeValue({ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 5 }), { x: 2, y: 5 });
     eq("합치기: 벌칙 기록 양쪽 추가", MergeValue([{ n: 1 }], [{ n: 1 }, { n: 2 }], [{ n: 1 }, { n: 3 }]), [{ n: 1 }, { n: 3 }, { n: 2 }]);
+    eq("합치기: 서버에 이미 붙은 내 기록은 한 번만", MergeValue([{ n: 1 }], [{ n: 1 }, { n: 2 }], [{ n: 1 }, { n: 2 }, { n: 3 }]), [{ n: 1 }, { n: 2 }, { n: 3 }]);
 
-    // 가짜 서버: 한 줄(row). 돌려줄 때 jsonb처럼 키 순서를 바꿈
-    const srv = { row: null, calls: 0, offline: false, beforeUpdate: null, signOutArg: null };
-    const Jsonb = v => JSON.parse(GetCanonJson(v));
-    const fakeFrom = () => {
-      const q = { op: "select", cols: "", ret: "", conds: {}, vals: null };
-      const pick = cols => Object.fromEntries(cols.split(",").map(c => c.trim()).map(c => [c, Jsonb(srv.row[c])]));
-      const run = () => {
-        srv.calls++;
-        if (srv.offline) {
+    // 가짜 서버: 한 줄(stRow). 돌려줄 때 jsonb처럼 키 순서를 바꿈
+    const stServer = { stRow: null, nCalls: 0, bOffline: false, bLoseReply: false, fnBeforeUpdate: null, stSignOutArg: null };
+    const GetJsonb = stValue => JSON.parse(GetCanonJson(stValue));
+    const CreateFakeQuery = () => {
+      const stQuery = { strOp: "select", strCols: "", strReturn: "", mapCond: {}, stValues: null };
+      const PickCols = strCols => Object.fromEntries(strCols.split(",").map(strCol => strCol.trim()).map(strCol => [strCol, GetJsonb(stServer.stRow[strCol])]));
+      const RunQuery = () => {
+        stServer.nCalls++;
+        if (stServer.bOffline) {
           return { data: null, error: { message: "Failed to fetch" } };
         }
-        if (q.op === "update" && srv.beforeUpdate) {
-          const fn = srv.beforeUpdate;
-          srv.beforeUpdate = null;
-          fn();
+        if (stServer.fnBeforeUpdate && stQuery.strOp === "update") {
+          const fnHook = stServer.fnBeforeUpdate;
+          stServer.fnBeforeUpdate = null;
+          fnHook();
         }
-        const hit = !!srv.row && Object.entries(q.conds).every(([k, v]) => srv.row[k] === v);
-        if (q.op === "insert") {
-          if (srv.row) {
+        const bHit = !!stServer.stRow && Object.entries(stQuery.mapCond).every(([strCol, stValue]) => stServer.stRow[strCol] === stValue);
+        if (stQuery.strOp === "insert") {
+          if (stServer.stRow) {
             return { error: { code: "23505", message: "duplicate key" } };
           }
-          srv.row = Jsonb(q.vals);
+          stServer.stRow = GetJsonb(stQuery.stValues);
           return { error: null };
         }
-        if (q.op === "update") {
-          if (!hit) {
+        if (stQuery.strOp === "update") {
+          if (!bHit) {
             return { data: [], error: null };
           }
-          Object.assign(srv.row, Jsonb(q.vals));
-          return { data: [pick(q.ret)], error: null };
+          Object.assign(stServer.stRow, GetJsonb(stQuery.stValues));
+          if (stServer.bLoseReply) {
+            stServer.bLoseReply = false;
+            return { data: null, error: { message: "응답 끊김" } };   // 서버에는 들어갔는데 응답을 못 받음
+          }
+          return { data: [PickCols(stQuery.strReturn)], error: null };
         }
-        return { data: hit ? pick(q.cols) : null, error: null };
+        return { data: bHit ? PickCols(stQuery.strCols) : null, error: null };
       };
-      const ch = {
-        select(c) { if (q.op === "select") { q.cols = c; } else { q.ret = c; } return ch; },
-        insert(v) { q.op = "insert"; q.vals = v; return ch; },
-        update(v) { q.op = "update"; q.vals = v; return ch; },
-        eq(k, v) { q.conds[k] = v; return ch; },
-        maybeSingle() { return ch; },
-        single() { return ch; },
-        then(ok, no) { return new Promise(r => setTimeout(r, 5)).then(run).then(ok, no); },
+      const stChain = {
+        select(strCols) {
+          if (stQuery.strOp === "select") {
+            stQuery.strCols = strCols;
+          } else {
+            stQuery.strReturn = strCols;
+          }
+          return stChain;
+        },
+        insert(stValues) {
+          stQuery.strOp = "insert";
+          stQuery.stValues = stValues;
+          return stChain;
+        },
+        update(stValues) {
+          stQuery.strOp = "update";
+          stQuery.stValues = stValues;
+          return stChain;
+        },
+        eq(strCol, stValue) {
+          stQuery.mapCond[strCol] = stValue;
+          return stChain;
+        },
+        maybeSingle() {
+          return stChain;
+        },
+        single() {
+          return stChain;
+        },
+        then(fnOk, fnFail) {
+          return new Promise(fnResolve => setTimeout(fnResolve, 5)).then(RunQuery).then(fnOk, fnFail);
+        },
       };
-      return ch;
+      return stChain;
     };
-    let authCb = null;
-    const fakeClient = { from: fakeFrom, auth: {
-      onAuthStateChange(cb) { authCb = cb; setTimeout(() => cb("INITIAL_SESSION", null)); return { data: { subscription: { unsubscribe() {} } } }; },
-      async signInWithPassword({ email, password }) {
-        if (password !== "pw") {
-          return { error: { message: "Invalid login credentials" } };
-        }
-        setTimeout(() => authCb("SIGNED_IN", { user: { email } }));
-        return { data: {}, error: null };
+    let fnAuthChanged = null;
+    const stFakeClient = {
+      from: CreateFakeQuery,
+      auth: {
+        onAuthStateChange(fnCallback) {
+          fnAuthChanged = fnCallback;
+          setTimeout(() => fnCallback("INITIAL_SESSION", null));
+          return { data: { subscription: { unsubscribe() {} } } };
+        },
+        async signInWithPassword(stLogin) {
+          if (stLogin.password !== "pw") {
+            return { error: { message: "Invalid login credentials" } };
+          }
+          setTimeout(() => fnAuthChanged("SIGNED_IN", { user: { email: stLogin.email } }));
+          return { data: {}, error: null };
+        },
+        async signOut(stOption) {
+          stServer.stSignOutArg = stOption;
+          setTimeout(() => fnAuthChanged("SIGNED_OUT", null));
+          return { error: null };
+        },
       },
-      async signOut(arg) { srv.signOutArg = arg; setTimeout(() => authCb("SIGNED_OUT", null)); return { error: null }; } } };
-    g_fnCreateClient = () => fakeClient;
-    const settle = async () => { await tick(); for (let i = 0; i < 50 && g_stCloud.bBusy; i++) { await tick(); } await tick(); };
-    const LL = id => state.lists.find(l => l.id === id);
-    const other = fn => { const dd = JSON.parse(JSON.stringify(srv.row.data)); fn(dd); srv.row.data = dd; srv.row.rev++; };   // 다른 폰이 서버에 올림
+    };
+    g_fnCreateClient = () => stFakeClient;
+    const WaitSync = async () => {
+      await tick();
+      for (let nLoop = 0; nLoop < 50 && g_stCloud.bBusy; nLoop++) {
+        await tick();
+      }
+      await tick();
+    };
+    const FindList = strId => state.lists.find(stList => stList.id === strId);
+    const ServerList = () => stServer.stRow.data.lists[0];
+    const SetByOtherPhone = fnEdit => {   // 다른 폰이 서버에 올린 것처럼
+      const stData = JSON.parse(JSON.stringify(stServer.stRow.data));
+      fnEdit(stData);
+      stServer.stRow.data = stData;
+      stServer.stRow.rev++;
+    };
+    const PeopleText = () => FindList("l1").people.map(stPerson => stPerson.name + (stPerson.v.c1 ? "✔" : ""));
+    const TallyText = () => FindList("l1").tally.map(stTally => stTally.name).join(",");
 
-    $("#tabs button").click(); await tick();
+    $("#tabs button").click();
+    await tick();
     state = { cur: "l1", rig: { on: true, names: "가", w: 2 }, surprise: { armed: false }, acct: "국민 1",
       lists: [{ id: "l1", name: "1월", title: "1월", cols: [{ id: "c1", name: "입금", kind: "check" }], people: [P("a", "가", {}), P("b", "나", {})] }] };
     save();
-    eq("클라우드 안 켜면 저장해도 요청 없음", srv.calls, 0);
-    await StartCloudAsync("https://fake.supabase.co", "sb_publishable_x"); clearInterval(g_stCloud.nTimer); await tick();
-    eq("켜면 버튼 보임·로그인 필요", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, srv.calls], [false, "☁ 로그인", 0]);
-    $("#cloudBtn").click(); await tick();
-    d.querySelector("#f_email").value = "a@b.c"; d.querySelector("#f_pw").value = "틀림"; submit(); await settle();
-    eq("틀린 비밀번호", [g_stCloud.bLogin, $("#cloudBtn").textContent, srv.row], [false, "☁ 로그인", null]);
-    $("#cloudBtn").click(); await tick();
-    d.querySelector("#f_email").value = "a@b.c"; d.querySelector("#f_pw").value = "pw"; submit(); await settle();
-    eq("첫 연결: 이 폰 명단을 서버에 만듦 (이 폰 값은 안 올림)", [srv.row.rev, Object.keys(srv.row.data).sort(), srv.row.data.lists[0].people.length, $("#cloudBtn").textContent],
+    eq("클라우드 안 켜면 저장해도 요청 없음", stServer.nCalls, 0);
+    await StartCloudAsync("https://fake.supabase.co", "sb_publishable_x");
+    clearInterval(g_stCloud.nTimer);   // 시험 중엔 5초 확인을 끄고 직접 맞춤
+    await tick();
+    eq("켜면 버튼 보임·로그인 필요", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, stServer.nCalls], [false, "☁ 로그인", 0]);
+
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector("#f_email").value = "a@b.c";
+    d.querySelector("#f_pw").value = "틀림";
+    submit();
+    await WaitSync();
+    eq("틀린 비밀번호", [g_stCloud.bLogin, $("#cloudBtn").textContent, stServer.stRow], [false, "☁ 로그인", null]);
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector("#f_email").value = "a@b.c";
+    d.querySelector("#f_pw").value = "pw";
+    submit();
+    await WaitSync();
+    eq("첫 연결: 이 폰 명단을 서버에 만듦 (이 폰 값은 안 올림)",
+      [stServer.stRow.rev, Object.keys(stServer.stRow.data).sort(), ServerList().people.length, $("#cloudBtn").textContent],
       [1, ["acct", "lists"], 2, "☁ 저장됨"]);
 
-    LL("l1").people[0].v.c1 = true; save(); await settle();
-    eq("체크하면 올라감", [srv.row.rev, srv.row.data.lists[0].people[0].v.c1], [2, true]);
-    state.lists.push({ id: "l2", name: "2월", title: "2월", cols: [], people: [] }); save(); await settle();
-    const nCalls0 = srv.calls; select("l2"); await settle();
-    eq("보는 명단만 바꾸면 요청 없음", [srv.calls - nCalls0, srv.row.rev], [0, 3]);
-    select("l1"); await settle();
+    FindList("l1").people[0].v.c1 = true;
+    save();
+    await WaitSync();
+    eq("체크하면 올라감", [stServer.stRow.rev, ServerList().people[0].v.c1], [2, true]);
+    state.lists.push({ id: "l2", name: "2월", title: "2월", cols: [], people: [] });
+    save();
+    await WaitSync();
+    const nCallsBefore = stServer.nCalls;
+    select("l2");
+    await WaitSync();
+    eq("보는 명단만 바꾸면 요청 없음", [stServer.nCalls - nCallsBefore, stServer.stRow.rev], [0, 3]);
+    select("l1");
+    await WaitSync();
 
-    other(dd => dd.lists[0].people.push({ id: "c", name: "다", v: {} }));
-    await SyncCloudAsync(); await settle();
-    eq("다른 폰 추가 반영 · 이 폰 값 유지", [LL("l1").people.map(p => p.name), state.cur, state.rig.names, state.surprise.armed], [["가", "나", "다"], "l1", "가", false]);
+    SetByOtherPhone(stData => stData.lists[0].people.push({ id: "c", name: "다", v: {} }));
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("다른 폰 추가 반영 · 이 폰 값 유지", [PeopleText(), state.cur, state.rig.names, state.surprise.armed], [["가✔", "나", "다"], "l1", "가", false]);
 
-    srv.offline = true;
-    LL("l1").people[1].v.c1 = true; save(); await settle();
+    stServer.bOffline = true;
+    FindList("l1").people[1].v.c1 = true;
+    save();
+    await WaitSync();
     eq("연결 끊김 표시", $("#cloudBtn").textContent, "☁ 연결 안 됨");
-    other(dd => { dd.lists[0].people[0].name = "가가"; dd.lists[0].tally = [{ name: "다", game: "x", t: 1 }]; });
-    LL("l1").tally = [{ name: "나", game: "y", t: 2 }]; save(); await settle();
-    srv.offline = false; await SyncCloudAsync(); await settle();
-    eq("끊긴 동안 양쪽 변경 다 살림", [LL("l1").people.map(p => p.name + (p.v.c1 ? "✔" : "")), LL("l1").tally.map(t => t.name), IsSame(srv.row.data, GetShared(state)), $("#cloudBtn").textContent],
-      [["가가✔", "나✔", "다"], ["다", "나"], true, "☁ 저장됨"]);
+    SetByOtherPhone(stData => {
+      stData.lists[0].people[0].name = "가가";
+      stData.lists[0].tally = [{ name: "다", game: "x", t: 1 }];
+    });
+    FindList("l1").tally = [{ name: "나", game: "y", t: 2 }];
+    save();
+    await WaitSync();
+    stServer.bOffline = false;
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("끊긴 동안 양쪽 변경 다 살림", [PeopleText(), TallyText(), IsSame(stServer.stRow.data, GetShared(state)), $("#cloudBtn").textContent],
+      [["가가✔", "나✔", "다"], "다,나", true, "☁ 저장됨"]);
 
-    srv.beforeUpdate = () => other(dd => dd.lists[0].people[2].v.c1 = true);   // 올리는 순간 다른 폰이 먼저 올림
-    LL("l1").title = "1월 정모"; save(); await settle();
-    eq("올리다 판이 바뀌면 받아 합쳐 다시 올림", [LL("l1").title, LL("l1").people[2].v.c1, srv.row.data.lists[0].title, srv.row.data.lists[0].people[2].v.c1, g_stCloud.nRev === srv.row.rev],
+    stServer.bLoseReply = true;   // 올리기는 됐는데 응답을 못 받음 → 그 사이 다른 폰이 기록 하나 더
+    FindList("l1").tally.push({ name: "가가", game: "z", t: 3 });
+    save();
+    await WaitSync();
+    SetByOtherPhone(stData => stData.lists[0].tally.push({ name: "다", game: "w", t: 4 }));
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("응답 끊긴 올리기: 기록이 두 번 붙지 않음", [TallyText(), ServerList().tally.length, $("#cloudBtn").textContent], ["다,나,가가,다", 4, "☁ 저장됨"]);
+
+    stServer.fnBeforeUpdate = () => SetByOtherPhone(stData => stData.lists[0].people[2].v.c1 = true);   // 올리는 순간 다른 폰이 먼저 올림
+    FindList("l1").title = "1월 정모";
+    save();
+    await WaitSync();
+    eq("올리다 판이 바뀌면 받아 합쳐 다시 올림",
+      [FindList("l1").title, FindList("l1").people[2].v.c1, ServerList().title, ServerList().people[2].v.c1, g_stCloud.nRev === stServer.stRow.rev],
       ["1월 정모", true, "1월 정모", true, true]);
 
-    render(); document.querySelector("#tbl .colhead").click(); await tick();
-    other(dd => dd.lists[0].people[1].name = "나나");
-    await SyncCloudAsync(); await settle();
-    eq("창 열린 동안은 다른 폰 변경 미룸", [d.open, $("#cloudBtn").textContent, LL("l1").people[1].name], [true, "☁ 창 닫으면 맞춤", "나"]);
-    d.querySelector("#f_name").value = "입금여부"; submit(); await settle(); await settle();
-    eq("창 닫으면 창에서 고친 것 + 다른 폰 변경 둘 다", [LL("l1").cols[0].name, LL("l1").people[1].name, srv.row.data.lists[0].cols[0].name, srv.row.data.lists[0].people[1].name, $("#cloudBtn").textContent],
+    render();
+    document.querySelector("#tbl .colhead").click();
+    await tick();
+    SetByOtherPhone(stData => stData.lists[0].people[1].name = "나나");
+    await SyncCloudAsync();
+    await WaitSync();
+    eq("창 열린 동안은 다른 폰 변경 미룸", [d.open, $("#cloudBtn").textContent, FindList("l1").people[1].name], [true, "☁ 창 닫으면 맞춤", "나"]);
+    d.querySelector("#f_name").value = "입금여부";
+    submit();
+    await WaitSync();
+    await WaitSync();
+    eq("창 닫으면 창에서 고친 것 + 다른 폰 변경 둘 다",
+      [FindList("l1").cols[0].name, FindList("l1").people[1].name, ServerList().cols[0].name, ServerList().people[1].name, $("#cloudBtn").textContent],
       ["입금여부", "나나", "입금여부", "나나", "☁ 저장됨"]);
 
-    g_stCloud.stBase = null; g_stCloud.nRev = 0;   // 처음 연결하는 폰처럼
-    LL("l1").title = "이 폰의 옛 제목";
+    g_stCloud.stBase = null;   // 처음 연결하는 폰처럼
+    g_stCloud.nRev = 0;
+    FindList("l1").title = "이 폰의 옛 제목";
     state.lists.push({ id: "l9", name: "이 폰에만", title: "x", cols: [], people: [P("z", "자", {})] });
-    save(); await settle();
-    eq("처음 맞추는 폰: 서버 것 우선 + 이 폰에만 있던 명단 추가", [LL("l1").title, state.lists.map(l => l.id), srv.row.data.lists.map(l => l.id), $("#toast").textContent],
+    save();
+    await WaitSync();
+    eq("처음 맞추는 폰: 서버 것 우선 + 이 폰에만 있던 명단 추가",
+      [FindList("l1").title, state.lists.map(stList => stList.id), stServer.stRow.data.lists.map(stList => stList.id), $("#toast").textContent],
       ["1월 정모", ["l1", "l2", "l9"], ["l1", "l2", "l9"], "이 폰에만 있던 명단 1개를 클라우드에 합쳤어요."]);
-    eq("맞춘 판 번호가 이 폰에 저장됨", JSON.parse(fake["nasul-inwon-cloud"]).rev, srv.row.rev);
+    eq("맞춘 판 번호가 이 폰에 저장됨", JSON.parse(fake["nasul-inwon-cloud"]).rev, stServer.stRow.rev);
 
-    const good = srv.row.data;
-    other(dd => dd.lists = [{ id: "x" }]);
-    await SyncCloudAsync(); await settle();
+    const stGoodData = stServer.stRow.data;
+    SetByOtherPhone(stData => stData.lists = [{ id: "x" }]);
+    await SyncCloudAsync();
+    await WaitSync();
     eq("서버 내용이 깨졌으면 안 덮음", [$("#cloudBtn").textContent, state.lists.length], ["☁ 연결 안 됨", 3]);
-    srv.row.data = good;
+    stServer.stRow.data = stGoodData;
+    await SyncCloudAsync();
+    await WaitSync();
 
-    await SyncCloudAsync(); await settle();
-    $("#cloudBtn").click(); await tick(); d.querySelector(".btn.left").click(); await settle();
-    eq("로그아웃은 이 폰만", [srv.signOutArg, g_stCloud.bLogin, $("#cloudBtn").textContent, state.lists.length], [{ scope: "local" }, false, "☁ 로그인", 3]);
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector(".btn.left").click();
+    await WaitSync();
+    eq("로그아웃은 이 폰만", [stServer.stSignOutArg, g_stCloud.bLogin, $("#cloudBtn").textContent, state.lists.length], [{ scope: "local" }, false, "☁ 로그인", 3]);
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
   document.querySelector("main").hidden = true;

@@ -582,6 +582,9 @@ function MergeValue(stBase, stMine, stTheirs) {
   if (IsSame(stTheirs, stBase)) {
     return stMine;
   }
+  if (IsSame(stMine, stTheirs)) {
+    return stTheirs;   // 올리기는 됐는데 응답만 못 받은 경우 등: 같은 변경을 두 번 붙이지 않음
+  }
   if (IsIdArray(stMine) && IsIdArray(stTheirs)) {
     return MergeIdArray(IsIdArray(stBase) ? stBase : [], stMine, stTheirs);
   }
@@ -589,7 +592,9 @@ function MergeValue(stBase, stMine, stTheirs) {
   const bAppendOnly = Array.isArray(arrHead) && Array.isArray(stMine) && Array.isArray(stTheirs)
     && IsPrefix(arrHead, stMine) && IsPrefix(arrHead, stTheirs);
   if (bAppendOnly) {
-    return [...stTheirs, ...stMine.slice(arrHead.length)];
+    const arrTheirTail = stTheirs.slice(arrHead.length);
+    const arrMineTail = stMine.slice(arrHead.length).filter(stItem => !arrTheirTail.some(stOther => IsSame(stOther, stItem)));   // 서버에 이미 붙은 내 기록은 빼고
+    return [...stTheirs, ...arrMineTail];
   }
   if (IsPlainObj(stMine) && IsPlainObj(stTheirs)) {
     const stOld = IsPlainObj(stBase) ? stBase : {};
