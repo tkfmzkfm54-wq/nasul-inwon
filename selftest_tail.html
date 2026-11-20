@@ -64,6 +64,10 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     d.querySelector("#f_amt").value = "15000"; d.querySelector("#f_acct").value = "국민 123-45"; submit(); await tick();
     eq("회비 저장", [cur.fee, state.acct], [{ amt: 15000, col: "c1", acct: "국민 123-45" }, "국민 123-45"]);
     eq("회비 결과 창", d.querySelector(".note")?.textContent.split("\n").slice(-2), ["입금 1명 × 15,000원 = 15,000원", "미입금 3명 (45,000원): 이영희B, 정하나, 한지민"]); d.close();
+    const rp = ["가", "나", "다", "라"].map(name => ({ name })), cnt = rg => { state.rig = rg; let n = 0; for (let i = 0; i < 2000; i++) n += wpick(rp) === 2; return n; };
+    eq("몰아주기 100 = 무조건", cnt({ on: true, names: "다", w: 100 }), 2000);
+    eq("몰아주기 100, 대상 빠지면 골고루", (() => { state.rig = { on: true, names: "없음", w: 100 }; const s = new Set(); for (let i = 0; i < 200; i++) s.add(wpick(rp)); return s.size; })(), 4);
+    eq("몰아주기 끔 = 무조건 아님", cnt({ on: false, names: "다", w: 100 }) < 2000, true); state.rig = null;
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
     eq("놀이 탭 10개 열림", document.querySelectorAll("#tabs button").length, 10);
   } catch (e) { out.push("ERR " + e.stack); }
