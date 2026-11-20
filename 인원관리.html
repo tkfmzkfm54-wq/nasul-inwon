@@ -291,6 +291,7 @@ dialog h2 { margin: 0; font: 22px var(--font-display); }
 .race-rank { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 
 /* 돌림판 */
+.can-stage { width: 100%; max-width: 960px; margin: 0 auto; }
 .wheel-stage { position: relative; width: min(560px, 100%); margin: 0 auto; }
 .wheel-cv { display: block; width: 100%; aspect-ratio: 1; filter: drop-shadow(0 14px 30px rgb(0 0 0 / .3)); }
 .wheel-pin { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); z-index: 2; width: 0; height: 0;
@@ -397,6 +398,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button type="button" data-tab="pinball" aria-selected="false">🎯 핀볼 추첨</button>
         <button type="button" data-tab="wheel" aria-selected="false">🎡 돌림판</button>
         <button type="button" data-tab="slot" aria-selected="false">🎰 스피드 룰렛</button>
+        <button type="button" data-tab="cannon" aria-selected="false">💣 대포 뽑기</button>
         <button type="button" data-tab="board" aria-selected="false">🎲 주루마블</button>
         <button type="button" data-tab="pirate" aria-selected="false">🏴‍☠️ 해적 룰렛</button>
         <button type="button" data-tab="ladder" aria-selected="false">🪜 사다리</button>
@@ -1598,6 +1600,126 @@ GAMES.slot = () => {
   idle();
 };
 
+// ---- 대포 뽑기: 대포가 좌우로 겨누다 쾅! 맞은 이름(팀)이 당첨. 스페이스바로도 쏨 ----
+GAMES.cannon = () => {
+  const modeSel = modeSelect();
+  const drop = h("input", { type: "checkbox", checked: true });
+  const back = h("button", { type: "button", class: "btn", hidden: true }, "↺ 모두 다시 세우기");
+  const go = h("button", { type: "button", class: "btn primary" }, "💣 발사");
+  const cv = h("canvas", { class: "pin-cv" }), ctx = cv.getContext("2d");
+  const banner = h("div", { class: "banner", hidden: true, onclick: () => banner.hidden = true });
+  const info = h("p", { class: "lad-result" });
+  mount("💣 대포 뽑기", [modeSel, h("label", { class: "inl chk-l" }, drop, "맞은 사람 빼고 계속"), back, go],
+    h("div", { class: "stack" }, h("div", { class: "pin-stage can-stage" }, cv, banner), info), () => { if (!busy) { s = sides(s.mode); out.clear(); layout(); } });
+  const cs = getComputedStyle(document.documentElement), C = k => cs.getPropertyValue(k).trim();
+  let s = sides(), out = new Set(), tgs = [], busy = false, alive = true, raf, ac, W = 0, H = 0, last = 0;
+  let ang = -Math.PI / 2, aim = null, ball = null, bits = [], shake = 0, recoil = 0, flash = 0;
+  const live = () => s.ps.filter(p => !out.has(p));
+  const gun = () => ({ x: W / 2, y: H - 46, L: Math.min(96, H * .2) });
+
+  function size() {
+    W = cv.clientWidth; H = Math.round(Math.min(innerHeight * (document.fullscreenElement ? .8 : .66), W * .75, 680));
+    const dpr = devicePixelRatio || 1; cv.style.height = H + "px"; cv.width = W * dpr; cv.height = H * dpr; layout();
+  }
+  function layout() {   // 과녁 = 위쪽 58% 칸에 가로:세로 약 2:1로 나눠 배치 (마지막 줄은 가운데)
+    const lv = live(), n = lv.length, top = 12, zone = H * .58 - top;
+    const cols = Math.max(1, Math.min(n, Math.round(Math.sqrt(n * W / (2 * zone))))), rows = Math.ceil(n / cols);
+    const cw = (W - 16) / cols, ch = zone / rows;
+    tgs = lv.map((p, i) => { const r = i / cols | 0, inRow = r === rows - 1 ? n - r * cols : cols;
+      return { p, x: 8 + (W - 16 - inRow * cw) / 2 + (i % cols + .5) * cw, y: top + (r + .5) * ch, w: cw - 8, h: Math.min(ch - 8, 56), hit: false }; });
+    info.textContent = `남은 ${n}${s.mode === "team" ? "팀" : "명"}` + (out.size ? ` · 맞은 ${[...out].map(p => p.name).join(", ")}` : "");
+    back.hidden = !out.size; modeSel.value = s.mode;
+  }
+  function sfx(big) {   // 쾅: 잡음을 낮은 음만 남겨 짧게
+    try {
+      ac ??= new (window.AudioContext || window.webkitAudioContext)();
+      const b = ac.createBuffer(1, ac.sampleRate * .7, ac.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 3;
+      const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = b; f.type = "lowpass"; f.frequency.value = big ? 600 : 1500; g.gain.value = big ? 1 : .5;
+      src.connect(f).connect(g).connect(ac.destination); src.start();
+    } catch { /* 소리 없어도 게임은 진행 */ }
+  }
+  function burst(x, y, c, n, smoke) {
+    for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = (smoke ? 30 : 120) + Math.random() * (smoke ? 60 : 380);
+      bits.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - (smoke ? 40 : 120), r: smoke ? 8 + Math.random() * 10 : 2 + Math.random() * 4,
+        c: smoke ? "rgb(150 150 150 / .5)" : i % 3 ? c : "#ffb300", life: 1, smoke }); }
+  }
+  function draw(now) {
+    const dt = Math.min(.05, (now - (last || now)) / 1000), g = gun(), dpr = devicePixelRatio || 1; last = now;
+    const SW = Math.atan2(W * .45, g.y - 40);   // 좌우로 겨누는 폭
+    if (aim) { const k = Math.min(1, (now - aim.t0) / aim.D), e = (1 - k) ** 2;   // 몇 번 크게 흔들리다 고른 과녁에서 멈춤
+      ang = aim.A + e * ((aim.a0 - aim.A) * Math.cos(k * 9) + .9 * Math.sin(k * 9)); }
+    else if (!busy) ang = -Math.PI / 2 + SW * Math.sin(now / 700);
+    ang = Math.max(-Math.PI + .12, Math.min(-.12, ang));
+    shake = Math.max(0, shake - dt * 3); recoil = Math.max(0, recoil - dt * 4); flash = Math.max(0, flash - dt * 6);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (shake) ctx.translate((Math.random() - .5) * 14 * shake, (Math.random() - .5) * 14 * shake);
+    ctx.fillStyle = C("--surface-2"); ctx.fillRect(-20, -20, W + 40, H + 40);
+    ctx.fillStyle = C("--line"); ctx.fillRect(-20, H - 22, W + 40, 42);
+    // 과녁
+    const font = C("--font-body");
+    tgs.forEach((t, i) => {
+      const y = t.y + Math.sin(now / 600 + i) * 2;
+      ctx.globalAlpha = t.hit ? .25 : 1; ctx.fillStyle = t.p.c; ctx.beginPath(); ctx.roundRect(t.x - t.w / 2, y - t.h / 2, t.w, t.h, Math.min(14, t.h / 2)); ctx.fill();
+      let fs = Math.min(t.h * .46, 22); ctx.font = `700 ${fs}px ${font}`;
+      const tw = ctx.measureText(t.p.name).width; if (tw > t.w - 10) { fs = Math.max(8, fs * (t.w - 10) / tw); ctx.font = `700 ${fs}px ${font}`; }
+      ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.shadowColor = "rgb(0 0 0 / .4)"; ctx.shadowBlur = 3;
+      ctx.fillText(t.p.name, t.x, y + 1); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    });
+    // 조준선
+    ctx.strokeStyle = C("--accent"); ctx.globalAlpha = .35; ctx.setLineDash([6, 8]); ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(g.x + Math.cos(ang) * g.L, g.y + Math.sin(ang) * g.L); ctx.lineTo(g.x + Math.cos(ang) * H * 1.5, g.y + Math.sin(ang) * H * 1.5); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    // 대포알·파편·연기
+    if (ball) { const k = Math.min(1, (now - ball.t0) / ball.D), x = ball.x0 + (ball.x1 - ball.x0) * k, y = ball.y0 + (ball.y1 - ball.y0) * k;
+      ctx.fillStyle = "#1d1f24"; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill();
+      ctx.fillStyle = "rgb(255 255 255 / .5)"; ctx.beginPath(); ctx.arc(x - 3, y - 3, 3, 0, 7); ctx.fill(); }
+    bits = bits.filter(b => (b.life -= dt * (b.smoke ? .9 : 1.3)) > 0);
+    for (const b of bits) { b.x += b.vx * dt; b.y += b.vy * dt; if (b.smoke) { b.r += dt * 24; b.vx *= .96; b.vy *= .96; } else b.vy += 700 * dt;
+      ctx.globalAlpha = b.life; ctx.fillStyle = b.c; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    // 대포: 포신(쏘면 뒤로 밀림) + 바퀴 + 받침
+    ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(ang); ctx.translate(-recoil * 14, 0);
+    ctx.fillStyle = "#3b3f4a"; ctx.beginPath(); ctx.roundRect(-16, -15, g.L + 16, 30, 10); ctx.fill();
+    ctx.fillStyle = "#24272e"; ctx.beginPath(); ctx.roundRect(g.L - 12, -19, 14, 38, 5); ctx.fill();
+    ctx.fillStyle = C("--accent"); ctx.fillRect(g.L * .35, -15, 7, 30);
+    if (flash) { ctx.globalAlpha = flash; ctx.fillStyle = "#ffcf4a"; ctx.beginPath(); ctx.arc(g.L + 16, 0, 26 * flash + 8, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.restore();
+    ctx.fillStyle = "#6b4a2b"; ctx.beginPath(); ctx.arc(g.x, g.y + 8, 22, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#3d2a17"; ctx.lineWidth = 4; ctx.beginPath();
+    for (let k = 0; k < 3; k++) { const a = k * Math.PI / 3; ctx.moveTo(g.x - Math.cos(a) * 18, g.y + 8 - Math.sin(a) * 18); ctx.lineTo(g.x + Math.cos(a) * 18, g.y + 8 + Math.sin(a) * 18); }
+    ctx.stroke(); ctx.fillStyle = "#3d2a17"; ctx.beginPath(); ctx.arc(g.x, g.y + 8, 6, 0, 7); ctx.fill();
+    if (alive) raf = requestAnimationFrame(draw);
+  }
+  async function fire() {
+    if (busy) return;
+    const lv = live();
+    if (lv.length < 2) return toast("남은 사람이 2명 이상이어야 해요. ‘모두 다시 세우기’를 눌러 주세요.");
+    busy = go.disabled = modeSel.disabled = true; banner.hidden = true;
+    const it = lv[wpick(lv)], tg = tgs.find(t => t.p === it), g = gun();
+    const A = Math.atan2(tg.y - g.y, tg.x - g.x), D = 2200 + Math.random() * 1000;
+    aim = { A, a0: ang, D, t0: performance.now() }; await wait(D); aim = null; ang = A; if (!alive) return;
+    const mx = g.x + Math.cos(A) * g.L, my = g.y + Math.sin(A) * g.L;
+    sfx(false); recoil = flash = 1; shake = .5; burst(mx, my, "", 14, true);
+    ball = { x0: mx, y0: my, x1: tg.x, y1: tg.y, t0: performance.now(), D: 250 + Math.hypot(tg.x - mx, tg.y - my) * .5 }; await wait(ball.D); ball = null; if (!alive) return;
+    sfx(true); shake = 1; tg.hit = true; burst(tg.x, tg.y, it.c, 60); burst(tg.x, tg.y, "", 10, true);
+    await wait(800); if (!alive) return;
+    banner.replaceChildren(h("small", {}, "💥 명중"), h("strong", { style: `color:${it.c}` }, it.name), h("span", {}, "당첨! 🎉"),
+      ...(it.members ? [h("span", { class: "members" }, it.members.join(" · "))] : []), h("em", {}, "눌러서 닫기"));
+    banner.hidden = false; record(it, "대포 뽑기");
+    if (drop.checked) { out.add(it); layout(); } else tg.hit = false;
+    busy = go.disabled = modeSel.disabled = false;
+  }
+  const key = e => { if (e.code === "Space" && !$("#dlg").open && !e.target.closest?.("input,textarea,select,button")) { e.preventDefault(); fire(); } };
+  go.onclick = fire;
+  modeSel.onchange = () => { s = sides(modeSel.value); out.clear(); layout(); };
+  back.onclick = () => { out.clear(); layout(); };
+  addEventListener("keydown", key); addEventListener("resize", size); document.addEventListener("fullscreenchange", size);
+  stopGame = () => { alive = false; cancelAnimationFrame(raf); ac?.close(); removeEventListener("keydown", key); removeEventListener("resize", size); document.removeEventListener("fullscreenchange", size); };
+  size(); raf = requestAnimationFrame(draw);
+};
+
 // ---- 벌칙 통계판: 놀이 당첨 횟수 순위 (오늘의 술상무) ----
 GAMES.stats = () => {
   const list = L(), tally = list.tally || [];
@@ -1612,7 +1734,7 @@ GAMES.stats = () => {
   const person = name => list.people.find(p => p.name === name);
   const dot = name => { const p = person(name); return p ? colorFor(p) : "var(--muted)"; };
   const gamesText = o => [...o.games].map(([g, n]) => `${g} ${n}`).join(" · ");
-  const body = !rows.length ? h("p", { class: "hint" }, "아직 기록이 없어요. 핀볼·돌림판·스피드 룰렛·해적 룰렛·사다리·경마에서 당첨되면 여기에 쌓여요.")
+  const body = !rows.length ? h("p", { class: "hint" }, "아직 기록이 없어요. 핀볼·돌림판·스피드 룰렛·대포 뽑기·해적 룰렛·사다리·경마에서 당첨되면 여기에 쌓여요.")
     : h("div", { class: "stack" },
       h("div", { class: "podium" }, rows.slice(0, 3).map((o, i) => h("div", { class: "pod pod-" + (i + 1) },
         h("div", { class: "pod-medal" }, ["👑", "🥈", "🥉"][i]), h("strong", {}, o.name), h("b", {}, `${o.n}회`), h("small", {}, gamesText(o))))),
@@ -1703,7 +1825,7 @@ async function rigMode() {
   const picked = (rg.names || "").split(/[,，]/).map(norm);
   const v = await ask({ title: "😈 벌칙 몰아주기", ok: "저장", extra: rg.on ? "끄기" : null,
     fields: [
-      { type: "note", text: rg.on ? `지금 켜짐: ${rg.names} · ${rg.w >= 100 ? "무조건" : rg.w + "배"}` : "지금은 꺼져 있어요.\n핀볼·돌림판·스피드 룰렛·해적 룰렛·사다리·경마에 적용 (팀전이면 그 사람이 낀 팀)" },
+      { type: "note", text: rg.on ? `지금 켜짐: ${rg.names} · ${rg.w >= 100 ? "무조건" : rg.w + "배"}` : "지금은 꺼져 있어요.\n핀볼·돌림판·스피드 룰렛·대포 뽑기·해적 룰렛·사다리·경마에 적용 (팀전이면 그 사람이 낀 팀)" },
       { id: "who", type: "chips", label: `누구? (‘${list.name}’에서 눌러서 고르기, 여러 명 가능)`,
         options: list.people.map(p => p.name), value: list.people.map(p => p.name).filter(n => picked.includes(norm(n))) },
       { id: "w", type: "number", label: "몇 배 잘 걸리게? (1 = 공정, 2 = 두 배, 0.5 = 오히려 덜 걸림, 100 = 무조건)", value: rg.w || 1.5 }],

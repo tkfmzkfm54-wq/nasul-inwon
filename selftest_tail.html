@@ -68,8 +68,14 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("몰아주기 100 = 무조건", cnt({ on: true, names: "다", w: 100 }), 2000);
     eq("몰아주기 100, 대상 빠지면 골고루", (() => { state.rig = { on: true, names: "없음", w: 100 }; const s = new Set(); for (let i = 0; i < 200; i++) s.add(wpick(rp)); return s.size; })(), 4);
     eq("몰아주기 끔 = 무조건 아님", cnt({ on: false, names: "다", w: 100 }) < 2000, true); state.rig = null;
+    showTab("cannon"); await tick();
+    const tgt = players().at(-1).name, n0 = L().tally.length; state.rig = { on: true, names: tgt, w: 100 };
+    document.querySelector("#view-game .btn.primary").click(); await new Promise(r => setTimeout(r, 6000));
+    eq("대포 뽑기: 몰아준 사람 명중·기록", [L().tally.length - n0, L().tally.at(-1).name, L().tally.at(-1).game], [1, tgt, "대포 뽑기"]);
+    eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
+    state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("놀이 탭 10개 열림", document.querySelectorAll("#tabs button").length, 10);
+    eq("놀이 탭 11개 열림", document.querySelectorAll("#tabs button").length, 11);
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
   document.querySelector("main").hidden = true;
