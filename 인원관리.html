@@ -2983,7 +2983,7 @@ const IMAGE_QS = [
 ];
 const CHOSUNG_WORDS = [   // 두 글자 낱말: 초성 문제와, 끝난 뒤 보여 줄 예시
   "사과", "바다", "학교", "가방", "나무", "노래", "다리", "라면", "마음", "모자", "바지", "버스", "사랑", "시계", "아기", "우유",
-  "자리", "주스", "치마", "카드", "커피", "토끼", "포도", "하늘", "호수", "기차", "냉면", "두부", "딸기", "맥주", "소주", "안주",
+  "자리", "주스", "치마", "카드", "커피", "통장", "포도", "하늘", "호수", "기차", "냉면", "두부", "딸기", "맥주", "소주", "안주",
   "김치", "거울", "고기", "공원", "구름", "기린", "눈물", "달걀", "도시", "동생", "머리", "문자", "반지", "별명", "부산", "비누",
   "사진", "수박", "신발", "야구", "여름", "연필", "의자", "전화", "지갑", "친구", "택시", "편지", "피자", "회사", "휴가", "축구",
 ];
@@ -3119,7 +3119,7 @@ function ShowCardGame(strTitle, strGame, arrQs, fnCreateQ, strPickHelp) {
 // ---- 밸런스 게임: 둘 중 하나를 다 같이 고름. 적은 쪽을 고른 사람들이 벌칙 ----
 GAMES.balance = () => ShowCardGame("⚖️ 밸런스 게임", "밸런스 게임", BALANCE_QS,
   arrQ => [h("strong", {}, arrQ[0]), h("span", { class: "vs" }, "VS"), h("strong", { class: "bal-b" }, arrQ[1])],
-  "‘하나!’에 손가락 1(왼쪽)·2(오른쪽)로 동시에 고르기 → 적은 쪽을 고른 사람들을 눌러 벌칙");
+  "‘하나!’에 손가락 1개(위)·2개(아래)로 동시에 고르기 → 적은 쪽을 고른 사람들을 눌러 벌칙");
 
 // ---- 이미지 게임: "가장 ~할 것 같은 사람"을 다 같이 지목. 가장 많이 지목된 사람이 벌칙 ----
 GAMES.image = () => ShowCardGame("👉 이미지 게임", "이미지 게임", IMAGE_QS,
@@ -3363,6 +3363,7 @@ GAMES.speed = () => {
     elRank.replaceChildren(...arrDone.map(stRec => h("li", {}, h("i", { style: `background:${stRec.stP.c}` }), `${stRec.stP.name} · ${stRec.nScore}점`)));
   }
   modeSel.onchange = () => Ready(modeSel.value);
+  selSec.onchange = Paint;   // 시작 버튼의 초를 바꿈 (도는 중엔 고르기가 꺼져 있음)
   btnNew.onclick = () => Ready(modeSel.value);
   stopGame = () => {
     clearTimeout(nTimer);
