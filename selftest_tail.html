@@ -925,6 +925,40 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     fnAskNickFirstAsync();
     await tick();
     eq("닉네임이 있으면 안 물음", d.open, false);
+
+    // 테마: 눌러 보면 바로 바뀌고, 취소하면 되돌리고, 고르면 이 폰에만 저장
+    const elRoot = document.documentElement;
+    eq("테마 바탕은 밝게·어둡게 중 하나 (시스템 어둡게일 때 색이 섞이지 않게)", THEMES.filter(stTheme => stTheme.strId !== "default" && !["light", "dark"].includes(stTheme.strBase)).map(stTheme => stTheme.strId), []);
+    const arrNoSkin = THEMES.filter(stTheme => stTheme.strBase).filter(stTheme => {
+      ApplyTheme(stTheme);
+      const strSkinBg = getComputedStyle(elRoot).getPropertyValue("--bg").trim();
+      delete elRoot.dataset.skin;
+      return strSkinBg === getComputedStyle(elRoot).getPropertyValue("--bg").trim();
+    }).map(stTheme => stTheme.strId);
+    eq("테마마다 자기 색 묶음(CSS)이 있음", arrNoSkin, []);
+    eq("기본 말고는 효과 조각이 있음", THEMES.filter(stTheme => {
+      ApplyTheme(stTheme);
+      return (stTheme.strId === "default") !== ($("#fx").children.length === 0);
+    }).map(stTheme => stTheme.strId), []);
+    SetTheme("default");
+    $("#themeBtn").click();
+    await tick();
+    const arrThemeBtns = [...d.querySelectorAll(".theme-list button")];
+    eq("테마 창: 테마 수만큼 버튼, 지금 테마가 눌림", [d.open, arrThemeBtns.length, arrThemeBtns.filter(btnTheme => btnTheme.getAttribute("aria-pressed") === "true").map(btnTheme => btnTheme.textContent)], [true, THEMES.length, ["🍺 기본"]]);
+    arrThemeBtns.find(btnTheme => btnTheme.textContent.includes("눈 오는 밤")).click();
+    eq("눌러 보면 바로 바뀜(저장은 아직)", [elRoot.dataset.theme, elRoot.dataset.skin, $("#fx").children.length > 0, fake[THEME_KEY]], ["dark", "snow", true, "default"]);
+    [...d.querySelectorAll(".actions button")].find(btnAct => btnAct.textContent === "취소").click();
+    await tick();
+    eq("취소하면 원래 테마로", [d.open, elRoot.dataset.theme, elRoot.dataset.skin, $("#fx").children.length, fake[THEME_KEY]], [false, undefined, undefined, 0, "default"]);
+    $("#themeBtn").click();
+    await tick();
+    [...d.querySelectorAll(".theme-list button")].find(btnTheme => btnTheme.textContent.includes("벚꽃")).click();
+    submit();
+    await tick();
+    eq("고르면 이 폰에 저장", [d.open, fake[THEME_KEY], elRoot.dataset.theme, elRoot.dataset.skin], [false, "sakura", "light", "sakura"]);
+    fake[THEME_KEY] = "없는테마";
+    eq("모르는 테마가 저장돼 있으면 기본", LoadTheme().strId, "default");
+    SetTheme("default");   // 결과 그림을 효과 조각이 가리지 않게
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
   clearInterval(nKeepAlive);
