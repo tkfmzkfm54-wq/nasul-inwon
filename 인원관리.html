@@ -541,7 +541,8 @@ const CLOUD_POLL_MS = 5000;   // 화면이 보이는 동안 다른 폰 변경을
 const CLOUD_MAX_TRY = 5;   // 한 번 맞출 때 '그 사이 다른 폰이 먼저 올림'을 다시 시도하는 최대 횟수
 const LOCAL_ONLY_KEYS = ["cur", "rig", "surprise"];   // 이 폰에만 두는 값: 지금 보는 명단 · 벌칙 몰아주기 · 생일 서프라이즈
 const CLOUD_STATUS_TEXT = { login: "☁ 로그인", busy: "☁ 맞추는 중…", ok: "☁ 저장됨", wait: "☁ 창 닫으면 맞춤", error: "☁ 연결 안 됨" };
-let g_fnCreateClient = (strUrl, strKey) => supabase.createClient(strUrl, strKey);   // 자체 시험에서 가짜 서버로 바꿈
+// 로그인은 탭 전용 저장소(sessionStorage)에 둠: 탭·창을 닫으면 마스터 로그아웃, 같은 탭 새로고침은 유지. 자체 시험에서 가짜 서버로 바꿈
+let g_fnCreateClient = (strUrl, strKey) => supabase.createClient(strUrl, strKey, { auth: { storage: window.sessionStorage } });
 const g_stCloud = {
   pClient: null,   // Supabase 클라이언트. null = 클라우드 안 씀
   strUrl: "",
@@ -851,6 +852,10 @@ async function StartCloudAsync(strUrl, strKey) {
     return;
   }
   g_stCloud.strUrl = strUrl;
+  // 예전 판은 로그인을 localStorage에 남겨 창을 닫아도 마스터가 유지됐음 → 남은 것 지움
+  for (const strAuthKey of Object.keys(localStorage).filter(strName => /^sb-.*-auth-token$/.test(strName))) {
+    localStorage.removeItem(strAuthKey);
+  }
   g_stCloud.pClient = g_fnCreateClient(strUrl, strKey);
   LoadCloudMeta(strUrl);
   $("#cloudBtn").hidden = false;

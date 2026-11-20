@@ -3,6 +3,8 @@
 <script>
 // 실제 브라우저에서 사본을 열어도 진짜 명단을 덮어쓰지 않도록 저장을 가짜로 바꾼다
 const fake = {};
+const fnRealSetItem = Storage.prototype.setItem;   // 예전 로그인 흔적을 진짜 저장소에 심을 때만 씀
+const fnRealCreateClient = g_fnCreateClient;   // 아래에서 가짜 서버로 바꾸기 전의 진짜 만들기 함수
 Storage.prototype.setItem = function (k, v) { fake[k] = v; };
 Storage.prototype.getItem = function (k) { return Object.hasOwn(fake, k) ? fake[k] : null; };   // 읽기도 가짜 저장소에서 (보기 전용 되돌리기가 마지막 저장본을 읽음)
 // CLOUD_URL에 실제 서버가 들어 있어도 시험 중엔 진짜 서버에 붙지 않게, 페이지 시작 때의 연결을 막고 가짜 서버로만 연다
@@ -245,7 +247,10 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       lists: [{ id: "l1", name: "1월", title: "1월", cols: [{ id: "c1", name: "입금", kind: "check" }], people: [P("a", "가", {}), P("b", "나", {})] }] };
     save();
     eq("클라우드 안 켜면 저장해도 요청 없음", stServer.nCalls, 0);
+    eq("마스터 로그인은 탭 전용 저장소 (탭 닫으면 로그아웃)", fnRealCreateClient("https://example.supabase.co", "sb_publishable_test").auth.storage === sessionStorage, true);
+    fnRealSetItem.call(localStorage, "sb-old-auth-token", "{}");   // 예전 판이 남긴 로그인
     await fnStartCloudAsync("https://fake.supabase.co", "sb_publishable_x");
+    eq("예전 판이 localStorage에 남긴 로그인은 지움", Object.keys(localStorage).includes("sb-old-auth-token"), false);
     clearInterval(g_stCloud.nTimer);   // 시험 중엔 5초 확인을 끄고 직접 맞춤
     await WaitSync();
     eq("켜면 버튼 보임·보기 전용: 서버 확인만 하고 안 만듦", [$("#cloudBtn").hidden, $("#cloudBtn").textContent, stServer.stRow, $("#saveWhere").textContent.startsWith("서버 명단을 보는 중")],
