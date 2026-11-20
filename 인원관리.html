@@ -3076,7 +3076,7 @@ function ShowCardGame(strTitle, strGame, arrQs, fnCreateQ, strPickHelp) {
       return;
     }
     elCard.replaceChildren(...fnCreateQ(arrQs[nQ]),
-      nCount < 0 ? h("small", { class: "boom" }, "지금! 다 같이 👉") : null,
+      ...(nCount < 0 ? [h("small", { class: "boom" }, "지금! 다 같이 👉")] : []),   // replaceChildren은 null을 글자로 넣음
       h("button", { type: "button", class: "btn big", onclick: StartCount }, nCount < 0 ? "⏱ 다시 세기" : "⏱ 셋·둘·하나!"));
   }
   // 참가자 칩: 눌러서 벌칙 받을 사람 고르기 (참가자에서 뺀 사람은 고른 것도 풀림)
@@ -3355,7 +3355,7 @@ GAMES.speed = () => {
           h("button", { type: "button", class: "btn big", onclick: () => Answer(false) }, "⏭ 패스")));
     } else {
       elCard.replaceChildren(h("strong", { style: `color:${stNow.c}` }, `${stNow.name} 차례`),
-        stNow.members ? h("small", {}, stNow.members.join(" · ")) : null,
+        ...(stNow.members ? [h("small", {}, stNow.members.join(" · "))] : []),   // 팀전이면 팀원
         h("small", {}, "설명할 사람만 화면을 보고, 나머지가 맞혀요"),
         h("button", { type: "button", class: "btn primary big", onclick: Start }, `▶ 시작 (${selSec.value}초)`));
     }
