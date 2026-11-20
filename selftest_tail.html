@@ -232,15 +232,18 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       [CollectQuizPool("✍ 맞춤법", "상").every(stQ => stQ.strCat === "✍ 맞춤법" && stQ.strLv === "상"), CollectQuizPool("", "하").every(stQ => stQ.strLv === "하"),
         Object.keys(QUIZ_QS).reduce((nSum, strC) => nSum + CollectQuizPool(strC, "").length, 0) === arrAllQz.length], [true, true, true]);
     const setUsedPq = new Set();
-    const arrPickPq = Array.from({ length: 600 }, () => PickQuiz("", "", setUsedPq));
+    const arrPickPq = arrAllQz.map(() => PickQuiz("", "", setUsedPq));   // 전체 문제 수만큼 뽑기
+    const arrFirstPq = arrPickPq.slice(0, 200);
     const arrBucketPq = CollectQuizPool("🌏 세계 수도", "하");
     const setOncePq = new Set();
     const arrOncePq = arrBucketPq.map(() => PickQuiz("🌏 세계 수도", "하", setOncePq).strQ);
-    const setOtherPq = new Set(["🔬 과학|물의 화학식은?", ...arrBucketPq.map(stQ => `${stQ.strCat}|${stQ.strQ}`)]);
+    const stSkipPq = PickQuiz("🌏 세계 수도", "", new Set(arrBucketPq.map(GetQuizKey)));   // 세계 수도·하를 다 풀었으면 다른 난이도에서
+    const setOtherPq = new Set(["🔬 과학|물의 화학식은?", ...arrBucketPq.map(GetQuizKey)]);
     const stAgainPq = PickQuiz("🌏 세계 수도", "하", setOtherPq);
-    eq("상식 퀴즈 랜덤: 카테고리·난이도 고루 나옴, 고른 묶음은 다 나올 때까지 안 겹침, 다 쓰면 그 묶음만 다시",
-      [new Set(arrPickPq.map(stQ => stQ.strCat)).size, new Set(arrPickPq.map(stQ => stQ.strLv)).size, new Set(arrOncePq).size, stAgainPq.strCat, setOtherPq.has("🔬 과학|물의 화학식은?"), setOtherPq.size],
-      [Object.keys(QUIZ_QS).length, 3, arrBucketPq.length, "🌏 세계 수도", true, 2]);
+    eq("상식 퀴즈 랜덤: 전체를 다 풀 때까지 같은 문제 없음·카테고리·난이도 고루, 다 푼 묶음은 건너뜀, 고른 범위를 다 풀면 그 범위만 다시",
+      [new Set(arrPickPq.map(GetQuizKey)).size, new Set(arrFirstPq.map(stQ => stQ.strCat)).size, new Set(arrFirstPq.map(stQ => stQ.strLv)).size,
+        new Set(arrOncePq).size, [stSkipPq.strCat, stSkipPq.strLv !== "하"], stAgainPq.strCat, setOtherPq.has("🔬 과학|물의 화학식은?"), setOtherPq.size],
+      [arrAllQz.length, Object.keys(QUIZ_QS).length, 3, arrBucketPq.length, ["🌏 세계 수도", true], "🌏 세계 수도", true, 2]);
     showTab("quiz");
     await tick();
     const elCardQz = () => document.querySelector("#view-game .liar-card");
@@ -271,6 +274,17 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     await new Promise(r => setTimeout(r, 250));
     performance.now = fnNowQz;
     eq("상식 퀴즈: 시간 끝 = 벌칙, 정답 공개", [L().tally.length - nTallyQz, elCardQz().textContent.includes("시간 끝! 정답은")], [2, true]);
+    const nUsedQz = g_setQuizUsed.size;
+    showTab("quiz");
+    await tick();
+    const arrKeepQz = [nUsedQz >= 3, g_setQuizUsed.size];
+    document.querySelector("#view-game select[aria-label='카테고리']").value = "🌏 세계 수도";
+    document.querySelector("#view-game select[aria-label='난이도']").value = "하";
+    document.querySelector("#view-game select[aria-label='제한 시간']").value = "0";
+    CollectQuizPool("🌏 세계 수도", "하").forEach(stQ => g_setQuizUsed.add(GetQuizKey(stQ)));
+    elCardQz().querySelector(".btn.primary").click();
+    eq("상식 퀴즈: 탭을 다시 열어도 나온 문제 기억, 고른 범위를 다 풀면 알리고 다시",
+      [...arrKeepQz, $("#toast").textContent, FindQuizT().strCat, FindQuizT().strLv], [true, nUsedQz, "고른 범위의 문제를 다 풀었어요! 처음부터 다시 나와요.", "🌏 세계 수도", "하"]);
     showTab("balance");
     await tick();
     eq("밸런스 게임: 카드에 null 글자 없음", document.querySelector("#view-game .liar-card").textContent.includes("null"), false);
