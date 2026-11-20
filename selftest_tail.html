@@ -119,6 +119,21 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     const arrPickT = Array.from({ length: 3 }, () => arrKeysT[PickCard(arrKeysT, setUsedT)]);
     eq("카드 뽑기: 같은 초성은 한 번만, 다 나오면 처음부터", [new Set(arrPickT.slice(0, 2)).size, setUsedT.size], [2, 1]);
     eq("남은 시간 (초 올림, 끝 = 0)", [CalcLeftSec(5000, 0), CalcLeftSec(5000, 4001), CalcLeftSec(5000, 5000), CalcLeftSec(5000, 9000)], [5, 1, 0, 0]);
+    eq("오늘 뭐 하지: 지금 화면은 안 고름", Array.from({ length: 20 }, () => PickRandomGame(["a", "b"], "a")).every(strTab => strTab === "b"), true);
+    const dtNowT = new Date(2026, 10, 20);
+    const arrListsT = [{ tally: [{ name: "가", t: +new Date(2026, 10, 3) }, { name: "나", t: +new Date(2026, 9, 30) }] }, { tally: [{ name: "가", t: +new Date(2026, 10, 1) }] }, {}];
+    eq("벌칙 통계 범위: 이 명단·이번 달·역대 (시간 순)",
+      [CollectTally(arrListsT, arrListsT[0], "list", dtNowT).length, CollectTally(arrListsT, arrListsT[0], "month", dtNowT).map(stRec => stRec.t),
+        CollectTally(arrListsT, arrListsT[0], "all", dtNowT).map(stRec => stRec.name)],
+      [2, [+new Date(2026, 10, 1), +new Date(2026, 10, 3)], ["나", "가", "가"]]);
+    let nToneT = 0;
+    const pFakeAudioT = { createOscillator: () => { nToneT++; throw new Error("가짜"); } };
+    PlayTone(pFakeAudioT, 440, 0.1);
+    $("#muteBtn").click();
+    PlayTone(pFakeAudioT, 440, 0.1);
+    const arrMuteT = [nToneT, g_bMute, $("#muteBtn").textContent, localStorage.getItem(MUTE_KEY)];
+    $("#muteBtn").click();
+    eq("소리 끄기: 끄면 소리 안 냄·이 폰에 저장, 다시 누르면 켬", [...arrMuteT, g_bMute], [1, true, "🔇", "1", false]);
     eq("스피드 퀴즈 꼴찌 (동점이면 모두, 모두 같으면 무승부)",
       [FindLowestSides([3, 1, 2]), FindLowestSides([2, 1, 1]), FindLowestSides([2, 2]), FindLowestSides([0, 0, 0])], [[1], [1, 2], [], []]);
     showTab("cannon"); await tick();
@@ -128,7 +143,7 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
     state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("탭 20개 열림 (명단·방명록·놀이 17·통계)", document.querySelectorAll("#tabs button").length, 20);
+    eq("탭 23개 열림 (모임 4·뽑기 8·폰 돌리기 7·대화형 4)", document.querySelectorAll("#tabs button").length, 23);
     showTab("balance");
     await tick();
     eq("밸런스 게임: 카드에 null 글자 없음", document.querySelector("#view-game .liar-card").textContent.includes("null"), false);
@@ -154,6 +169,38 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     selSecT.value = "30";
     selSecT.dispatchEvent(new Event("change"));
     eq("스피드 퀴즈: 시간 바꾸면 시작 버튼도 바뀜", document.querySelector("#view-game .liar-card .btn.primary").textContent, "▶ 시작 (30초)");
+    const GetShownGrps = () => [...new Set([...$("#tabs").children].filter(btnTab => !btnTab.hidden).map(btnTab => btnTab.dataset.grp))];
+    eq("메뉴 묶음: 화면을 열면 그 묶음 탭만 보임", [GetShownGrps(), $("#grps [data-grp='pass']").getAttribute("aria-pressed")], [["pass"], "true"]);
+    $("#grps [data-grp='talk']").click();
+    eq("메뉴 묶음: 묶음만 바꾸면 탭만 바뀌고 화면은 그대로", [GetShownGrps(), [...$("#tabs").children].filter(btnTab => !btnTab.hidden).length, tab], [["talk"], 4, "speed"]);
+    $("#randomBtn").click();
+    eq("오늘 뭐 하지: 모임 묶음 아닌 놀이를 열고 알림", [$(`#tabs [data-tab="${tab}"]`).dataset.grp !== "meet", tab !== "speed", $("#toast").textContent.startsWith("오늘은 ")], [true, true, true]);
+    showTab("truth");
+    await tick();
+    eq("진실 혹은 도전: 진실·도전 둘 다 보이고 셋·둘·하나 없음",
+      [document.querySelector("#view-game .liar-card").textContent.includes("또는"), document.querySelector("#view-game .liar-card button"), document.querySelector("#view-game .liar-card").textContent.includes("null")], [true, null, false]);
+    showTab("finger");
+    await tick();
+    const nTallyF = L().tally.length;
+    document.querySelector("#view-game .pick-list .who-chip").click();
+    document.querySelector("#view-game .pass-wrap > .btn.primary").click();
+    eq("손병호 게임: 고른 사람 벌칙 기록", [L().tally.length - nTallyF, L().tally.at(-1).game], [1, "손병호 게임"]);
+    showTab("relay");
+    await tick();
+    const strStartT = document.querySelector("#view-game .cs-big").textContent;
+    const nTallyR = L().tally.length;
+    document.querySelector("#view-game .liar-card .btn.primary").click();
+    document.querySelector("#view-game .liar-card .bar .btn:not(.primary)").click();
+    eq("끝말잇기: 시작 낱말이 그대로 보이고, 틀림 = 기록",
+      [CHOSUNG_WORDS.includes(strStartT), L().tally.length - nTallyR, L().tally.at(-1).game, document.querySelector("#view-game .liar-card small").textContent], [true, 1, "끝말잇기", `시작: ${strStartT} · ‘새 낱말’을 누르면 다시`]);
+    showTab("stats");
+    await tick();
+    const selScopeT = document.querySelector("#view-game select[aria-label='통계 범위']");
+    selScopeT.value = "all";
+    selScopeT.dispatchEvent(new Event("change"));
+    const btnUndoT = [...document.querySelectorAll("#view-game .game-head .btn")].find(btnT => btnT.textContent.includes("마지막 기록 취소"));
+    eq("벌칙 통계 역대: 취소·지우기 막힘", btnUndoT.disabled, true);
+    g_strStatsScope = "list";
     showTab("react");
     await tick();
     const btnPadT = document.querySelector("#view-game .rx-pad");
