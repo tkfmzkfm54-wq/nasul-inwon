@@ -134,8 +134,8 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     const arrMuteT = [nToneT, g_bMute, $("#muteBtn").textContent, localStorage.getItem(MUTE_KEY)];
     $("#muteBtn").click();
     eq("소리 끄기: 끄면 소리 안 냄·이 폰에 저장, 다시 누르면 켬", [...arrMuteT, g_bMute], [1, true, "🔇", "1", false]);
-    eq("스피드 퀴즈 꼴찌 (동점이면 모두, 모두 같으면 무승부)",
-      [FindLowestSides([3, 1, 2]), FindLowestSides([2, 1, 1]), FindLowestSides([2, 2]), FindLowestSides([0, 0, 0])], [[1], [1, 2], [], []]);
+    eq("스피드 퀴즈 꼴찌 후보 (동점이면 모두 → 연장전, 모두 같아도)",
+      [FindLowestSides([3, 1, 2]), FindLowestSides([2, 1, 1]), FindLowestSides([2, 2]), FindLowestSides([0, 0, 0])], [[1], [1, 2], [0, 1], [0, 1, 2]]);
     showTab("cannon"); await tick();
     const tgt = players().at(-1).name, n0 = L().tally.length; state.rig = { on: true, names: tgt, w: 100 };
     document.querySelector("#view-game .btn.primary").click(); await new Promise(r => setTimeout(r, 6000));
@@ -169,6 +169,38 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     selSecT.value = "30";
     selSecT.dispatchEvent(new Event("change"));
     eq("스피드 퀴즈: 시간 바꾸면 시작 버튼도 바뀜", document.querySelector("#view-game .liar-card .btn.primary").textContent, "▶ 시작 (30초)");
+    // 연장전: 판마다 첫 차례만 1점, 나머지 0점 → 0점끼리 연장전 … 두 명 남은 판에서 둘째가 꼴찌. 시계를 31초씩 넘겨 차례를 끝냄
+    const fnNowT = performance.now.bind(performance);
+    let nSkipT = 0;
+    performance.now = () => fnNowT() + nSkipT;
+    const PlaySpeedTurnT = async nScore => {
+      const strName = document.querySelector("#view-game .liar-card strong").textContent.replace(" 차례", "");
+      document.querySelector("#view-game .liar-card .btn.primary").click();
+      for (let nIdx = 0; nIdx < nScore; nIdx++) {
+        document.querySelector("#view-game .liar-card .bar .btn.primary").click();
+      }
+      nSkipT += 31000;
+      await new Promise(r => setTimeout(r, 250));
+      return strName;
+    };
+    const nTallySq = L().tally.length;
+    const nPsSq = players().length;
+    const arrTallySq = [];
+    let strLastSq = "";
+    let strOverSq = "";
+    for (let nLeftT = nPsSq; nLeftT > 1; nLeftT--) {
+      for (let nTurnT = 0; nTurnT < nLeftT; nTurnT++) {
+        strLastSq = await PlaySpeedTurnT(nTurnT === 0 ? 1 : 0);
+      }
+      arrTallySq.push(L().tally.length - nTallySq);
+      if (nLeftT === nPsSq) {
+        strOverSq = document.querySelector("#view-game .rank-box h3").textContent + "/" + document.querySelector("#view-game .liar-card small").textContent;
+      }
+    }
+    performance.now = fnNowT;
+    eq("스피드 퀴즈 연장전: 동점 판은 기록 없음, 꼴찌 한 명 정해질 때 한 번만 기록",
+      [nPsSq >= 3, strOverSq, arrTallySq, L().tally.at(-1).name, L().tally.at(-1).game, document.querySelector("#view-game .liar-card").textContent.includes("당첨")],
+      [true, "연장전 1 점수/🔥 연장전 1 · 최저 점수 동점끼리 한 판 더", [...Array(nPsSq - 2).fill(0), 1], strLastSq, "스피드 퀴즈", true]);
     const GetShownGrps = () => [...new Set([...$("#tabs").children].filter(btnTab => !btnTab.hidden).map(btnTab => btnTab.dataset.grp))];
     eq("메뉴 묶음: 화면을 열면 그 묶음 탭만 보임", [GetShownGrps(), $("#grps [data-grp='pass']").getAttribute("aria-pressed")], [["pass"], "true"]);
     $("#grps [data-grp='talk']").click();

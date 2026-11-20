@@ -3119,11 +3119,10 @@ function CalcLeftSec(nEndAt, nNow) {
   return Math.max(0, Math.ceil((nEndAt - nNow) / 1000));
 }
 
-// 스피드 퀴즈 꼴찌: 가장 낮은 점수의 순서들(동점이면 모두). 모두 같은 점수면 무승부 = 빈 배열
+// 스피드 퀴즈 꼴찌 후보: 가장 낮은 점수의 순서들. 둘 이상(모두 같은 점수 포함)이면 그 사람(팀)끼리 연장전
 function FindLowestSides(arrScores) {
   const nMin = Math.min(...arrScores);
-  const arrLow = [...arrScores.keys()].filter(nIdx => arrScores[nIdx] === nMin);
-  return arrLow.length === arrScores.length ? [] : arrLow;
+  return [...arrScores.keys()].filter(nIdx => arrScores[nIdx] === nMin);
 }
 
 /**
@@ -3372,6 +3371,7 @@ GAMES.speed = () => {
   const btnNew = h("button", { type: "button", class: "btn primary" }, "🔀 처음부터");
   const elCard = h("div", { class: "liar-card" });
   const elRank = h("ol", { class: "rank" });
+  const elRankTitle = h("h3", {}, "점수");
   const elLeft = h("div", { class: "cs-left" });   // 남은 초·점수: 똑딱마다 글자만 바꿈 (버튼을 다시 만들면 누르는 중인 터치가 씹힘)
   const arrWords = [...SPEED_ACTS, ...Object.values(LIAR_WORDS).flat()];
   const setUsed = new Set();
@@ -3379,7 +3379,7 @@ GAMES.speed = () => {
   let nTimer = 0;
   let nLastSec = 0;
   let pAudio = null;
-  mount("⏱ 스피드 퀴즈", [modeSel, selSec, btnNew], h("div", { class: "stack pass-wrap" }, elCard, h("div", { class: "rank-box" }, h("h3", {}, "점수"), elRank)), () => {
+  mount("⏱ 스피드 퀴즈", [modeSel, selSec, btnNew], h("div", { class: "stack pass-wrap" }, elCard, h("div", { class: "rank-box" }, elRankTitle, elRank)), () => {
     if (!stSq.bRun) {
       Ready(modeSel.value);
     }
@@ -3389,7 +3389,7 @@ GAMES.speed = () => {
     clearTimeout(nTimer);
     const stSides = sides(strMode);
     modeSel.value = stSides.mode;
-    stSq = { arrPs: stSides.ps, arrScores: [], nTurn: 0, nScore: 0, nWord: 0, nEndAt: 0, bRun: false, arrOut: null };
+    stSq = { arrPs: stSides.ps, arrScores: [], nTurn: 0, nScore: 0, nWord: 0, nEndAt: 0, bRun: false, stOut: null, nOver: 0 };   // nOver = 연장전 몇 번째 (0 = 첫 판)
     Paint();
   }
   function Start() {
@@ -3441,7 +3441,7 @@ GAMES.speed = () => {
     stSq.nWord = PickCard(arrWords, setUsed);
     Paint();
   }
-  // 차례 끝: 한 차례에 한 번만. 모두 끝나면 꼴찌 기록 (모두 같은 점수면 무승부)
+  // 차례 끝: 한 차례에 한 번만. 모두 끝나면 꼴찌 한 명만 기록, 최저 점수 동점이면 동점자끼리 같은 시간으로 연장전(기록 없음)
   function TimeUp() {
     if (!stSq.bRun) {
       return;
@@ -3453,9 +3453,13 @@ GAMES.speed = () => {
     PlayTone(pAudio, 220, 0.5, "sawtooth");
     Vibrate(300);
     if (stSq.nTurn >= stSq.arrPs.length) {
-      stSq.arrOut = FindLowestSides(stSq.arrScores).map(nIdx => stSq.arrPs[nIdx]);
-      for (const stP of stSq.arrOut) {
-        record(stP, "스피드 퀴즈");
+      const arrLow = FindLowestSides(stSq.arrScores).map(nIdx => stSq.arrPs[nIdx]);
+      if (arrLow.length === 1) {
+        stSq.stOut = arrLow[0];
+        record(stSq.stOut, "스피드 퀴즈");
+      } else {
+        Object.assign(stSq, { arrPs: arrLow, arrScores: [], nTurn: 0, nOver: stSq.nOver + 1 });
+        toast(`동점! ${arrLow.map(stP => stP.name).join(", ")} 연장전`);
       }
     }
     btnNew.disabled = false;
@@ -3468,11 +3472,9 @@ GAMES.speed = () => {
     const stNow = arrPs[stSq.nTurn];
     if (arrPs.length < 2) {
       elCard.replaceChildren(h("p", { class: "note" }, "참가자(팀)가 2개 이상이어야 해요"));
-    } else if (stSq.arrOut) {
-      elCard.replaceChildren(stSq.arrOut.length
-        ? h("strong", {}, h("span", { class: "boom" }, "🍺 "), stSq.arrOut.map(stP => stP.name).join(", "), " 당첨!")
-        : h("strong", {}, "🤝 무승부!"),
-      h("small", {}, stSq.arrOut.length ? "점수가 가장 낮아요 · ‘처음부터’로 다시" : "모두 같은 점수 · ‘처음부터’로 다시"));
+    } else if (stSq.stOut) {
+      elCard.replaceChildren(h("strong", {}, h("span", { class: "boom" }, "🍺 "), stSq.stOut.name, " 당첨!"),
+        h("small", {}, "점수가 가장 낮아요 · ‘처음부터’로 다시"));
     } else if (stSq.bRun) {
       PaintLeft(CalcLeftSec(stSq.nEndAt, performance.now()));
       elCard.replaceChildren(elLeft, h("strong", {}, arrWords[stSq.nWord]),
@@ -3480,11 +3482,13 @@ GAMES.speed = () => {
           h("button", { type: "button", class: "btn primary big", onclick: () => Answer(true) }, "⭕ 정답"),
           h("button", { type: "button", class: "btn big", onclick: () => Answer(false) }, "⏭ 패스")));
     } else {
-      elCard.replaceChildren(h("strong", { style: `color:${stNow.c}` }, `${stNow.name} 차례`),
+      elCard.replaceChildren(...(stSq.nOver ? [h("small", {}, `🔥 연장전 ${stSq.nOver} · 최저 점수 동점끼리 한 판 더`)] : []),
+        h("strong", { style: `color:${stNow.c}` }, `${stNow.name} 차례`),
         ...(stNow.members ? [h("small", {}, stNow.members.join(" · "))] : []),   // 팀전이면 팀원
         h("small", {}, "설명할 사람만 화면을 보고, 나머지가 맞혀요"),
         h("button", { type: "button", class: "btn primary big", onclick: Start }, `▶ 시작 (${selSec.value}초)`));
     }
+    elRankTitle.textContent = stSq.nOver ? `연장전 ${stSq.nOver} 점수` : "점수";
     const arrDone = stSq.arrScores.map((nScore, nIdx) => ({ nScore, stP: arrPs[nIdx] })).sort((stA, stB) => stB.nScore - stA.nScore);
     elRank.replaceChildren(...arrDone.map(stRec => h("li", {}, h("i", { style: `background:${stRec.stP.c}` }), `${stRec.stP.name} · ${stRec.nScore}점`)));
   }
