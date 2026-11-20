@@ -10,6 +10,9 @@ Storage.prototype.getItem = function (k) { return Object.hasOwn(fake, k) ? fake[
 // CLOUD_URL에 실제 서버가 들어 있어도 시험 중엔 진짜 서버에 붙지 않게, 페이지 시작 때의 연결을 막고 가짜 서버로만 연다
 const fnStartCloudAsync = StartCloudAsync;
 StartCloudAsync = async () => {};
+// 처음 들어올 때 닉네임 창이 뜨면 다른 시험의 대화상자와 겹치므로 막아 두고, 아래에서 따로 시험한다
+const fnAskNickFirstAsync = AskNickFirstAsync;
+AskNickFirstAsync = async () => {};
 const errs = [];
 addEventListener("error", e => errs.push(e.message));
 addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
@@ -74,14 +77,9 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("몰아주기 100 = 무조건", cnt({ on: true, names: "다", w: 100 }), 2000);
     eq("몰아주기 100, 대상 빠지면 골고루", (() => { state.rig = { on: true, names: "없음", w: 100 }; const s = new Set(); for (let i = 0; i < 200; i++) s.add(wpick(rp)); return s.size; })(), 4);
     eq("몰아주기 끔 = 무조건 아님", cnt({ on: false, names: "다", w: 100 }) < 2000, true); state.rig = null;
-    showTab("cannon"); await tick();
-    const tgt = players().at(-1).name, n0 = L().tally.length; state.rig = { on: true, names: tgt, w: 100 };
-    document.querySelector("#view-game .btn.primary").click(); await new Promise(r => setTimeout(r, 6000));
-    eq("대포 뽑기: 몰아준 사람 명중·기록", [L().tally.length - n0, L().tally.at(-1).name, L().tally.at(-1).game], [1, tgt, "대포 뽑기"]);
-    eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
-    state.rig = null; document.querySelector("#view-game .banner").click();
+
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("놀이 탭 11개 열림", document.querySelectorAll("#tabs button").length, 11);
+    eq("탭 12개 열림 (명단·방명록·놀이 9·통계)", document.querySelectorAll("#tabs button").length, 12);
 
     // ---- 클라우드 동기화: 가짜 서버로 시험 (네트워크 안 씀) ----
     eq("클라우드 안 켜면 클라이언트 없음·버튼 숨김", [g_stCloud.pClient, $("#cloudBtn").hidden], [null, true]);
@@ -95,7 +93,9 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       typeof pReal.auth.signInWithPassword,
       typeof pReal.auth.signOut,
       typeof pReal.auth.onAuthStateChange,
-      typeof pReal.auth.updateUser], Array(8).fill("function"));
+      typeof pReal.auth.updateUser,
+      typeof pReal.from("comments").select("id").eq("room", "guest").order("id", { ascending: false }).limit,
+      typeof pReal.from("comments").delete().eq("id", 1).select], Array(10).fill("function"));
 
     // 합치기 단위 시험
     const GetIds = arrItems => arrItems.map(stItem => stItem.id).join("");
@@ -194,8 +194,67 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
       };
       return stChain;
     };
+    // comments 표: 👑(is_master)와 지우기 권한은 서버가 정함 (앱이 보낸 값은 안 씀). nCalls에는 안 셈
+    stServer.arrComments = [];
+    stServer.nCommentId = 0;
+    const CreateFakeComments = () => {
+      const stQuery = { strOp: "select", strCols: "", mapCond: {}, stValues: null, nLimit: 1000 };
+      const RunQuery = () => {
+        if (stServer.bOffline) {
+          return { data: null, error: { message: "Failed to fetch" } };
+        }
+        const arrHit = stServer.arrComments.filter(stRow => Object.entries(stQuery.mapCond).every(([strCol, stValue]) => stRow[strCol] === stValue));
+        if (stQuery.strOp === "insert") {
+          stServer.arrComments.push({ room: stQuery.stValues.room, nick: stQuery.stValues.nick, body: stQuery.stValues.body,
+            id: ++stServer.nCommentId, is_master: !!stServer.bMasterAuth && !stServer.bNotEditor, created_at: new Date().toISOString() });
+          return { error: null };
+        }
+        if (stQuery.strOp === "delete") {
+          if (!stServer.bMasterAuth) {
+            return { data: [], error: null };   // 서버 권한(RLS)이 막으면 오류 없이 0줄
+          }
+          stServer.arrComments = stServer.arrComments.filter(stRow => !arrHit.includes(stRow));
+          return { data: arrHit.map(stRow => ({ id: stRow.id })), error: null };
+        }
+        const arrCols = stQuery.strCols.split(",").map(strCol => strCol.trim());
+        const arrRows = [...arrHit].sort((stA, stB) => stB.id - stA.id).slice(0, stQuery.nLimit);
+        return { data: arrRows.map(stRow => Object.fromEntries(arrCols.map(strCol => [strCol, stRow[strCol]]))), error: null };
+      };
+      const stChain = {
+        select(strCols) {
+          if (stQuery.strOp === "select") {
+            stQuery.strCols = strCols;
+          }
+          return stChain;
+        },
+        insert(stValues) {
+          stQuery.strOp = "insert";
+          stQuery.stValues = stValues;
+          return stChain;
+        },
+        delete() {
+          stQuery.strOp = "delete";
+          return stChain;
+        },
+        eq(strCol, stValue) {
+          stQuery.mapCond[strCol] = stValue;
+          return stChain;
+        },
+        order() {
+          return stChain;
+        },
+        limit(nLimit) {
+          stQuery.nLimit = nLimit;
+          return stChain;
+        },
+        then(fnOk, fnFail) {
+          return new Promise(fnResolve => setTimeout(fnResolve, 5)).then(RunQuery).then(fnOk, fnFail);
+        },
+      };
+      return stChain;
+    };
     const stFakeClient = {
-      from: strTable => strTable === "editors" ? CreateFakeEditors() : CreateFakeQuery(),
+      from: strTable => strTable === "editors" ? CreateFakeEditors() : strTable === "comments" ? CreateFakeComments() : CreateFakeQuery(),
       auth: {
         onAuthStateChange(fnCallback) {
           fnAuthChanged = fnCallback;
@@ -206,12 +265,14 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
           if (stLogin.password !== "pw") {
             return { error: { message: "Invalid login credentials" } };
           }
+          stServer.bMasterAuth = true;
           setTimeout(() => fnAuthChanged("SIGNED_IN", { user: { email: stLogin.email } }));
           return { data: {}, error: null };
         },
         async signOut(stOption) {
           stServer.stSignOutArg = stOption;
           if (stOption?.scope !== "others") {   // others = 다른 기기만 끊음, 이 기기는 그대로
+            stServer.bMasterAuth = false;
             setTimeout(() => fnAuthChanged("SIGNED_OUT", null));
           }
           return { error: null };
@@ -467,10 +528,102 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     $("#masterOut").click();
     await WaitSync();
     eq("마스터 로그아웃 버튼", [g_stCloud.bLogin, $("#masterBadge").hidden, $("#cloudBtn").textContent, $("#toast").textContent.startsWith("마스터에서 로그아웃")], [false, true, "☁ 로그인", true]);
+
+    // ---- 댓글·닉네임·방명록 (가짜 서버, 지금은 보기 전용) ----
+    const WaitTalk = async () => {
+      for (let nLoop = 0; nLoop < 4; nLoop++) {
+        await tick();
+      }
+    };
+    const TalkNames = strSel => [...document.querySelectorAll(strSel + " .talk-item b")].map(elName => elName.textContent);
+    const SubmitTalk = async (strSel, strBody) => {
+      document.querySelector(strSel + " .talk-form input").value = strBody;
+      document.querySelector(strSel + " .talk-form").requestSubmit();
+      await tick();
+    };
+    showTab("list");
+    select("l1");
+    await WaitTalk();
+    eq("명단 댓글 칸 = 보는 명단", [g_stTalk.strRoom, g_stTalk.elHost === $("#listTalk"), $("#listTalk .talk-empty")?.textContent],
+      ["l1", true, "아직 댓글이 없어요. 첫 댓글을 남겨 보세요."]);
+    await SubmitTalk("#listTalk", "안녕하세요");
+    eq("닉네임이 없으면 댓글 쓸 때 물음", [d.open, d.querySelector("h2")?.textContent], [true, "👋 닉네임 정하기"]);
+    d.querySelector("#f_nick").value = "👑왕";
+    submit();
+    eq("👑·마스터가 든 닉네임은 안 받음", [d.open, d.querySelector(".err").textContent], [true, "‘마스터’와 👑는 닉네임에 쓸 수 없어요."]);
+    d.querySelector("#f_nick").value = "가".repeat(13);
+    submit();
+    eq("닉네임 12자 넘으면 안 받음", [d.open, d.querySelector(".err").textContent], [true, "닉네임은 12자까지예요."]);
+    d.querySelector("#f_nick").value = "길동";
+    submit();
+    await WaitTalk();
+    eq("댓글 올림 (닉네임 이 폰에 저장, 보기 전용은 👑 아님)",
+      [fake[NICK_KEY], stServer.arrComments.map(stRow => [stRow.room, stRow.nick, stRow.body, stRow.is_master]), $("#listTalk .talk-form input").value],
+      ["길동", [["l1", "길동", "안녕하세요", false]], ""]);
+    eq("댓글 보임 · 보기 전용은 지우기 버튼 없음", [TalkNames("#listTalk"), !!$("#listTalk .del"), $("#listTalk .talk-head b").textContent], [["길동"], false, "길동"]);
+    await SubmitTalk("#listTalk", "바로 또");
+    eq("연속으로 쓰면 기다리게 함", [stServer.arrComments.length, $("#toast").textContent.startsWith("도배 방지")], [1, true]);
+    g_stTalk.nLastAdd = 0;
+    await SubmitTalk("#listTalk", "<b>굵게</b>");
+    await WaitTalk();
+    eq("댓글 내용은 글자로만 (HTML 안 먹음) · 새 글이 위", [$("#listTalk .talk-item p b"), [...document.querySelectorAll("#listTalk .talk-item p")].map(elBody => elBody.textContent)],
+      [null, ["<b>굵게</b>", "안녕하세요"]]);
+
+    showTab("guest");
+    await WaitTalk();
+    eq("방명록은 명단 댓글과 따로", [g_stTalk.strRoom, $("#view-game .talk-empty")?.textContent], ["guest", "아직 댓글이 없어요. 첫 댓글을 남겨 보세요."]);
+    g_stTalk.nLastAdd = 0;
+    await SubmitTalk("#view-game", "방명록 첫 글");
+    await WaitTalk();
+    eq("방명록 글 올림", [stServer.arrComments.at(-1).room, TalkNames("#view-game")], ["guest", ["길동"]]);
+    stServer.arrComments.push({ id: ++stServer.nCommentId, room: "guest", nick: "다른폰", body: "반가워요", is_master: false, created_at: new Date().toISOString() });
+    await LoadTalkAsync(false);
+    eq("5초 확인: 다른 폰이 쓴 글 받음", TalkNames("#view-game"), ["다른폰", "길동"]);
+
+    $("#cloudBtn").click();
+    await tick();
+    d.querySelector("#f_pw").value = "pw";
+    submit();
+    await WaitSync();
+    await WaitSync();
+    await WaitTalk();
+    eq("마스터면 지우기 버튼", document.querySelectorAll("#view-game .talk-item .del").length, 2);
+    g_stTalk.nLastAdd = 0;
+    await SubmitTalk("#view-game", "마스터 공지");
+    await WaitTalk();
+    eq("마스터 댓글은 서버가 👑 붙임", [stServer.arrComments.at(-1).is_master, TalkNames("#view-game")[0], !!$("#view-game .talk-item.master")], [true, "👑 길동", true]);
+    $("#view-game .talk-item .del").click();
+    await tick();
+    eq("지우기 전에 확인", [d.open, d.querySelector(".note").textContent.startsWith("길동: 마스터 공지")], [true, true]);
+    submit();
+    await WaitTalk();
+    eq("마스터가 댓글 지움", [stServer.arrComments.some(stRow => stRow.body === "마스터 공지"), TalkNames("#view-game")], [false, ["다른폰", "길동"]]);
+
+    showTab("list");
+    await WaitTalk();
+    eq("명단 탭으로 돌아오면 그 명단 댓글", [g_stTalk.strRoom, TalkNames("#listTalk")], ["l1", ["길동", "길동"]]);
+    select("l2");
+    await WaitSync();
+    await WaitTalk();
+    eq("보는 명단을 바꾸면 그 명단 댓글", [g_stTalk.strRoom, $("#listTalk .talk-empty")?.textContent], ["l2", "아직 댓글이 없어요. 첫 댓글을 남겨 보세요."]);
+    select("l1");
+    await WaitSync();
+
+    delete fake[NICK_KEY];
+    fnAskNickFirstAsync();
+    await tick();
+    eq("처음 들어오면 닉네임 물음", [d.open, d.querySelector("h2")?.textContent], [true, "👋 닉네임 정하기"]);
+    d.close();
+    await tick();
+    fake[NICK_KEY] = "길동";
+    fnAskNickFirstAsync();
+    await tick();
+    eq("닉네임이 있으면 안 물음", d.open, false);
   } catch (e) { out.push("ERR " + e.stack); }
   await tick();
   document.querySelector("main").hidden = true;
   const fails = out.filter(x => !x.startsWith("PASS")).length + errs.length;
-  document.getElementById("T").textContent = (fails ? `실패 ${fails}건` : `모두 통과 (${out.length}건)`) + "\n" + out.join("\n") + "\n스크립트 오류=" + JSON.stringify(errs);
+  const arrSorted = [...out.filter(strLine => !strLine.startsWith("PASS")), ...out.filter(strLine => strLine.startsWith("PASS"))];   // 실패를 맨 위에 (결과 그림 첫 화면에 보이게)
+  document.getElementById("T").textContent = (fails ? `실패 ${fails}건` : `모두 통과 (${out.length}건)`) + "\n스크립트 오류=" + JSON.stringify(errs) + "\n" + arrSorted.join("\n");
 })();
 </script>

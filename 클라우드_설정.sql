@@ -56,6 +56,54 @@ create policy "누구나 보기" on public.app_state for select to anon, authent
   using (true);
 grant select on public.app_state to anon;
 
+-- 댓글: 누구나(로그인 없이) 닉네임으로 쓰고 읽는다. 지우기는 마스터(editors)만, 고치기는 아무도 못 한다.
+-- room = 명단 id(명단별 댓글) 또는 'guest'(방명록). 이 부분만 따로 실행해도 된다 (다시 실행해도 됨).
+-- 공개 키로 누구나 쓸 수 있으므로 도배 방지는 서버가 한다: 글자 수는 check, 1분에 전체 20개까지, 최근 2000개만 남김.
+create table if not exists public.comments (
+  id bigint generated always as identity primary key,
+  room text not null check (char_length(room) between 1 and 40),
+  nick text not null check (char_length(btrim(nick)) between 1 and 12),
+  body text not null check (char_length(btrim(body)) between 1 and 200),
+  is_master boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists comments_room_id on public.comments (room, id desc);
+create index if not exists comments_created on public.comments (created_at);
+alter table public.comments enable row level security;
+
+-- 쓰기 전에 서버가 정함: 마스터 표시(👑)·시간은 앱이 보낸 값을 무시하고 여기서 넣는다.
+-- security definer: 로그인 안 한 사람은 editors를 못 읽으므로 이 함수 권한으로 확인한다.
+-- ponytail: 1분 20개는 전체 기준이라 누가 도배하면 그동안 다른 사람도 못 씀. 심해지면 IP별 제한으로 바꿀 것
+create or replace function public.comments_before_insert() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from public.comments where created_at > now() - interval '1 minute') >= 20 then
+    raise exception '댓글이 너무 빨리 올라오고 있어요. 1분 뒤에 다시 써 주세요.';
+  end if;
+  new.is_master := exists (select 1 from public.editors e where e.user_id = auth.uid());
+  new.created_at := now();
+  delete from public.comments where id <= (select c.id from public.comments c order by c.id desc offset 1999 limit 1);
+  return new;
+end $$;
+drop trigger if exists comments_before_insert on public.comments;
+create trigger comments_before_insert before insert on public.comments
+  for each row execute function public.comments_before_insert();
+
+-- Supabase 기본 권한이 anon에게 다 줄 수 있어서 먼저 모두 거두고 필요한 것만 준다
+revoke all on public.comments from anon, authenticated;
+grant select, insert on public.comments to anon, authenticated;
+grant delete on public.comments to authenticated;
+
+drop policy if exists "댓글 누구나 보기" on public.comments;
+create policy "댓글 누구나 보기" on public.comments for select to anon, authenticated
+  using (true);
+drop policy if exists "댓글 누구나 쓰기" on public.comments;
+create policy "댓글 누구나 쓰기" on public.comments for insert to anon, authenticated
+  with check (true);
+drop policy if exists "댓글 마스터만 지우기" on public.comments;
+create policy "댓글 마스터만 지우기" on public.comments for delete to authenticated
+  using (exists (select 1 from public.editors e where e.user_id = (select auth.uid())));
+
 -- 마스터 등록 (4번에서 만든 계정). 다른 계정을 더 등록하려면 이메일만 바꿔 다시 실행
 insert into public.editors (user_id, memo)
 select id, email from auth.users where email = 'nasul.master@example.com'

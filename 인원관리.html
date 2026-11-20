@@ -372,6 +372,23 @@ tr.off td { color: var(--muted); }
 tr.off .who { text-decoration: line-through; font-weight: 500; }
 tr.off .chk, tr.off input.time { opacity: .45; }
 .statbox { max-height: 50vh; overflow: auto; box-shadow: none; }
+
+/* 댓글 · 방명록 */
+.talk { display: grid; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow); }
+.talk-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.talk-head h3 { margin: 0; font: 18px var(--font-display); }
+.talk-form { display: flex; gap: 6px; }
+.talk-form input { flex: 1; min-width: 0; padding: 9px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); font-size: 15px; }
+.talk-form input:focus { border-color: var(--accent); outline: none; }
+.talk-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; max-height: 60vh; overflow: auto; }
+.talk-item { padding: 8px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.talk-item.master { border-color: var(--accent); background: var(--accent-soft); }
+.talk-meta { display: flex; gap: 8px; align-items: center; }
+.talk-meta small { color: var(--muted); font-size: 12px; }
+.talk-meta .del { margin-left: auto; opacity: 1; }
+.talk-item p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-empty { color: var(--muted); text-align: center; padding: 14px 0; }
+
 </style>
 
 <header class="top"><div class="in">
@@ -400,6 +417,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
       </div>
       <nav class="tabs" id="tabs" aria-label="화면">
         <button type="button" data-tab="list" aria-selected="true">📋 명단</button>
+        <button type="button" data-tab="guest" aria-selected="false">📝 방명록</button>
         <button type="button" data-tab="pinball" aria-selected="false">🎯 핀볼 추첨</button>
         <button type="button" data-tab="wheel" aria-selected="false">🎡 돌림판</button>
         <button type="button" data-tab="slot" aria-selected="false">🎰 스피드 룰렛</button>
@@ -429,6 +447,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <span class="grow"></span>
         <button class="btn quiet danger" id="delList" type="button">이 명단 삭제</button>
       </div>
+      <section id="listTalk" class="talk" aria-label="이 명단 댓글"></section>
       </div>
       <div id="view-game" class="stack" hidden></div>
     </div>
@@ -878,15 +897,18 @@ async function StartCloudAsync(strUrl, strKey) {
       SetCloudStatus("login");
     }
     setTimeout(SyncCloudAsync, 0);
+    setTimeout(() => LoadTalkAsync(true), 0);   // 댓글도 받음 (마스터면 지우기 버튼이 보이게 다시 그림)
   });
   g_stCloud.nTimer = setInterval(() => {
     if (!document.hidden) {
       SyncCloudAsync();
+      LoadTalkAsync(false);
     }
   }, CLOUD_POLL_MS);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       SyncCloudAsync();
+      LoadTalkAsync(false);
     }
   });
   addEventListener("online", () => SyncCloudAsync());
@@ -972,7 +994,230 @@ async function LogoutMasterAsync() {
   await g_stCloud.pClient.auth.signOut({ scope: "local" });   // 이 폰만 로그아웃 (같은 계정을 쓰는 다른 폰은 유지)
   toast("마스터에서 로그아웃했어요. 이제 보기 전용이에요.");
 }
-addEventListener("DOMContentLoaded", () => StartCloudAsync(CLOUD_URL, CLOUD_KEY));
+addEventListener("DOMContentLoaded", () => {
+  StartCloudAsync(CLOUD_URL, CLOUD_KEY);
+  AskNickFirstAsync();
+});
+
+// ---- 댓글: 누구나 닉네임으로 쓰고, 지우기는 마스터만. 명단마다(room = 명단 id) + 방명록 하나(room = "guest") ----
+// 서버 comments 표에 둠(클라우드_설정.sql). 👑 표시(is_master)·시간은 서버가 정하고, 글자 수·도배 제한도 서버가 막음.
+// 명단(state)과 따로 두어 보기 전용 되돌리기·합치기·백업에 안 들어감. 닉네임은 이 폰에만 저장.
+// ponytail: 명단을 지워도 그 명단 댓글은 서버에 남음(안 보일 뿐). 쌓이면 SQL로 정리
+const COMMENT_GUEST_ROOM = "guest";   // 방명록 room 값
+const COMMENT_MAX_LEN = 200;   // 댓글 최대 글자 수 (서버 check와 같음)
+const COMMENT_SHOW = 50;   // 보여 줄 최근 댓글 수
+const COMMENT_GAP_MS = 10000;   // 이 폰에서 다음 댓글까지 기다리는 시간(ms). 실수로 두 번 누르기 방지용, 실제 도배 제한은 서버(1분 20개)
+const NICK_KEY = "nasul-inwon-nick";   // localStorage: 이 폰의 닉네임
+const NICK_MAX_LEN = 12;   // 닉네임 최대 글자 수 (서버 check와 같음)
+const g_stTalk = {
+  strRoom: "",   // 지금 그려 둔 댓글 칸의 room. "" = 없음
+  elHost: null,   // 댓글 칸을 넣은 요소 (명단 화면 #listTalk 또는 방명록 탭)
+  elList: null,   // 댓글 목록 ul
+  elNick: null,   // 닉네임 표시
+  arrRows: [],   // 마지막으로 받은 댓글 (새 것부터)
+  strIds: "",   // 그 댓글들의 id 목록. 5초 확인 때 이게 같으면 내용을 다시 받지 않음
+  bError: false,   // 마지막 받기 실패
+  nLastAdd: 0,   // 이 폰에서 마지막으로 쓴 시각(ms)
+};
+
+function GetNick() {
+  try {
+    return localStorage.getItem(NICK_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+// 닉네임 확인: 비었거나 길면 안 받음. 👑는 실제 마스터 댓글에만 붙으므로 마스터처럼 보이는 이름도 막음
+// @return 안내 문구 (null = 통과)
+function CheckNick(strNick) {
+  if (!strNick) {
+    return "닉네임을 넣어 주세요.";
+  }
+  if ([...strNick].length > NICK_MAX_LEN) {
+    return `닉네임은 ${NICK_MAX_LEN}자까지예요.`;
+  }
+  if (/👑|마스터/.test(strNick)) {
+    return "‘마스터’와 👑는 닉네임에 쓸 수 없어요.";
+  }
+  return null;
+}
+
+/**
+ * 닉네임 묻기 (이 폰에 저장)
+ * @param bFirst 처음 들어왔을 때. 취소해도 댓글을 쓸 때 다시 물음
+ * @return 정한 닉네임 ("" = 취소)
+ */
+async function AskNickAsync(bFirst) {
+  const stInput = await ask({ title: bFirst ? "👋 닉네임 정하기" : "닉네임 바꾸기", ok: "정하기",
+    fields: [{ type: "note", text: "댓글·방명록에 보일 이름이에요. 이 폰에만 저장되고, 댓글 칸에서 언제든 바꿀 수 있어요." },
+             { id: "nick", label: `닉네임 (${NICK_MAX_LEN}자까지)`, value: GetNick() }],
+    validate: stValue => CheckNick(stValue.nick) });
+  if (!stInput) {
+    return "";
+  }
+  try {
+    localStorage.setItem(NICK_KEY, stInput.nick);
+  } catch {
+    toast("닉네임을 저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.");
+  }
+  if (g_stTalk.elNick) {
+    g_stTalk.elNick.textContent = stInput.nick;
+  }
+  return stInput.nick;
+}
+
+// 처음 들어왔을 때(닉네임 없음) 닉네임을 물음. DOMContentLoaded에서 불림 (자체 시험은 막아 둠)
+async function AskNickFirstAsync() {
+  if (!GetNick()) {
+    await AskNickAsync(true);
+  }
+}
+
+// 댓글 시각 표시: 11/20 21:05
+function GetTalkTime(strIso) {
+  const dtTime = new Date(strIso);
+  const strHm = dtTime.toTimeString().slice(0, 5);
+  return `${dtTime.getMonth() + 1}/${dtTime.getDate()} ${strHm}`;
+}
+
+/**
+ * 댓글 칸을 elHost에 그리고 서버에서 받음. 같은 칸·같은 room이면 그대로 둠
+ * (render()가 저장·서버 반영 때마다 불러도 명단이 바뀔 때만 다시 받음)
+ */
+function ShowTalk(strRoom, elHost) {
+  if (g_stTalk.strRoom === strRoom && g_stTalk.elHost === elHost) {
+    return;
+  }
+  g_stTalk.strRoom = strRoom;
+  g_stTalk.elHost = elHost;
+  g_stTalk.arrRows = [];
+  g_stTalk.strIds = "";
+  g_stTalk.bError = false;
+  const inpBody = h("input", { maxlength: COMMENT_MAX_LEN, placeholder: "댓글 쓰기 · 누구나 볼 수 있어요", "aria-label": "댓글 내용" });
+  const btnAdd = h("button", { type: "submit", class: "btn primary" }, "등록");
+  const frmAdd = h("form", { class: "talk-form", autocomplete: "off" }, inpBody, btnAdd);
+  frmAdd.onsubmit = async e => {
+    e.preventDefault();
+    btnAdd.disabled = true;
+    if (await AddCommentAsync(inpBody.value.trim())) {
+      inpBody.value = "";
+    }
+    btnAdd.disabled = false;
+  };
+  g_stTalk.elNick = h("b", {}, GetNick() || "없음");
+  const btnNick = h("button", { type: "button", class: "btn quiet", title: "닉네임 바꾸기", onclick: () => AskNickAsync(false) }, "닉네임 ", g_stTalk.elNick, " ✎");
+  const strTitle = strRoom === COMMENT_GUEST_ROOM ? "💬 누구나 한마디" : "💬 이 명단 댓글";
+  g_stTalk.elList = h("ul", { class: "talk-list" });
+  elHost.replaceChildren(h("div", { class: "talk-head" }, h("h3", {}, strTitle), h("span", { class: "grow" }), btnNick), frmAdd, g_stTalk.elList);
+  PaintTalk();
+  LoadTalkAsync(true);
+}
+
+// 받아 둔 댓글을 그림. 닉네임·내용은 글자로만 넣음(h). 지우기 버튼은 마스터에게만
+function PaintTalk() {
+  const elList = g_stTalk.elList;
+  if (!elList) {
+    return;
+  }
+  let strEmpty = "";
+  if (!g_stCloud.pClient) {
+    strEmpty = "서버에 연결되면 댓글을 볼 수 있어요.";
+  } else if (!g_stTalk.arrRows.length) {
+    strEmpty = g_stTalk.bError ? "댓글을 불러오지 못했어요. 인터넷 연결을 확인해 주세요." : "아직 댓글이 없어요. 첫 댓글을 남겨 보세요.";
+  }
+  if (strEmpty) {
+    elList.replaceChildren(h("li", { class: "talk-empty" }, strEmpty));
+    return;
+  }
+  elList.replaceChildren(...g_stTalk.arrRows.map(stRow => h("li", { class: "talk-item" + (stRow.is_master ? " master" : "") },
+    h("div", { class: "talk-meta" },
+      h("b", {}, (stRow.is_master ? "👑 " : "") + stRow.nick),
+      h("small", {}, GetTalkTime(stRow.created_at)),
+      g_stCloud.bLogin ? h("button", { type: "button", class: "del", "aria-label": `${stRow.nick} 댓글 삭제`, onclick: () => RemoveCommentAsync(stRow) }, "✕") : null),
+    h("p", {}, stRow.body))));
+}
+
+/**
+ * 서버에서 댓글 받기
+ * @param bFull false = 5초 확인용: 안 보이면 건너뛰고, id만 먼저 봐서 바뀌었을 때만 내용을 받음
+ */
+async function LoadTalkAsync(bFull) {
+  const pClient = g_stCloud.pClient;
+  const strRoom = g_stTalk.strRoom;
+  if (!pClient || !strRoom || !g_stTalk.elHost?.isConnected) {
+    PaintTalk();
+    return;
+  }
+  if (!bFull) {
+    if (g_stTalk.elHost.offsetParent === null) {
+      return;   // 다른 탭을 보는 중
+    }
+    const { data: arrIds, error: errIds } = await pClient.from("comments").select("id")
+      .eq("room", strRoom).order("id", { ascending: false }).limit(COMMENT_SHOW);
+    if (errIds || arrIds.map(stRow => stRow.id).join(",") === g_stTalk.strIds) {
+      return;
+    }
+  }
+  const { data: arrRows, error: errGet } = await pClient.from("comments").select("id, nick, body, is_master, created_at")
+    .eq("room", strRoom).order("id", { ascending: false }).limit(COMMENT_SHOW);
+  if (strRoom !== g_stTalk.strRoom) {
+    return;   // 받는 사이 다른 명단·탭으로 바뀜
+  }
+  g_stTalk.bError = !!errGet;
+  if (!errGet) {
+    g_stTalk.arrRows = arrRows;
+    g_stTalk.strIds = arrRows.map(stRow => stRow.id).join(",");
+  }
+  PaintTalk();
+}
+
+/**
+ * 댓글 쓰기. 닉네임이 없으면 먼저 물음
+ * @return 올렸으면 true (입력 칸을 비움)
+ */
+async function AddCommentAsync(strBody) {
+  const strRoom = g_stTalk.strRoom;
+  if (!g_stCloud.pClient) {
+    toast("서버에 연결되지 않아 댓글을 쓸 수 없어요.");
+    return false;
+  }
+  if (!strBody) {
+    return false;
+  }
+  const nWaitMs = g_stTalk.nLastAdd + COMMENT_GAP_MS - Date.now();
+  if (nWaitMs > 0) {
+    toast(`도배 방지: ${Math.ceil(nWaitMs / 1000)}초 뒤에 다시 써 주세요.`);
+    return false;
+  }
+  const strNick = GetNick() || await AskNickAsync(true);
+  if (!strNick) {
+    return false;
+  }
+  const { error: errAdd } = await g_stCloud.pClient.from("comments").insert({ room: strRoom, nick: strNick, body: strBody });
+  if (errAdd) {
+    toast(`댓글을 올리지 못했어요: ${errAdd.message}`);
+    return false;
+  }
+  g_stTalk.nLastAdd = Date.now();
+  await LoadTalkAsync(true);
+  return true;
+}
+
+// 댓글 지우기 (마스터만. 서버 권한도 마스터만 허용)
+async function RemoveCommentAsync(stRow) {
+  const stOk = await ask({ title: "댓글 삭제", ok: "삭제", danger: true,
+    fields: [{ type: "note", text: `${stRow.nick}: ${stRow.body}\n\n이 댓글을 지울까요?` }] });
+  if (!stOk) {
+    return;
+  }
+  const { data: arrDel, error: errDel } = await g_stCloud.pClient.from("comments").delete().eq("id", stRow.id).select("id");
+  if (errDel || !arrDel?.length) {
+    toast("댓글을 지우지 못했어요. 마스터로 로그인했는지 확인해 주세요.");
+    return;
+  }
+  await LoadTalkAsync(true);
+}
 
 // ---- 화면 ----
 function render() {
@@ -1012,6 +1257,9 @@ function render() {
   const foot = people.length ? h("tfoot", {}, h("tr", {}, h("td", { class: "num" }, "TOTAL"), h("td", { class: "name" }, `${here.length}명`),
     ...cols.map(c => h("td", {}, String(here.filter(p => val(p, c)).length))), h("td", { class: "act" }))) : null;
   $("#tbl").replaceChildren(h("thead", {}, head), h("tbody", {}, body), foot);
+  if (!$("#view-list").hidden) {
+    ShowTalk(list.id, $("#listTalk"));   // 보는 명단이 바뀌었을 때만 댓글을 다시 받음
+  }
 }
 
 function select(id) { state.cur = id || null; hits = new Set(); say(""); save(); }
@@ -1505,6 +1753,9 @@ function showTab(t) {
   for (const b of $("#tabs").children) b.setAttribute("aria-selected", String(b.dataset.tab === t));
   $("#view-list").hidden = t !== "list"; $("#view-game").hidden = t === "list";
   if (t !== "list") GAMES[t]();
+  if (t === "list" && L()) {
+    ShowTalk(L().id, $("#listTalk"));   // 방명록에서 돌아오면 이 명단 댓글로
+  }
 }
 
 // 공통 틀: 제목 + 조작 버튼 + 참가자 고르기 + 본문
@@ -2202,6 +2453,13 @@ GAMES.cannon = () => {
   addEventListener("keydown", key); addEventListener("resize", size); document.addEventListener("fullscreenchange", size);
   stopGame = () => { alive = false; cancelAnimationFrame(raf); ac?.close(); removeEventListener("keydown", key); removeEventListener("resize", size); document.removeEventListener("fullscreenchange", size); };
   size(); raf = requestAnimationFrame(draw);
+};
+
+// ---- 방명록: 명단과 상관없는 댓글 칸 하나 (댓글 기능은 위 '댓글' 절) ----
+GAMES.guest = () => {
+  const elHost = h("div", { class: "talk" });
+  mount("📝 방명록", [], elHost, null, false);
+  ShowTalk(COMMENT_GUEST_ROOM, elHost);
 };
 
 // ---- 벌칙 통계판: 놀이 당첨 횟수 순위 (오늘의 술상무) ----
