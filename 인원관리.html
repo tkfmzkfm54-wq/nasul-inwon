@@ -3788,7 +3788,8 @@ GAMES.bank = () => {
       toast("날짜와 금액을 넣어 주세요.");
       return;
     }
-    state.ledger = [...arrLedger, { id: newId("m"), date: inpDate.value, amt: nAmt * +selKind.value, memo: inpMemo.value.trim() }];
+    // 지금 state에서 다시 읽음: 화면을 그린 뒤 다른 폰 기록이 동기화돼 들어왔을 수 있음 (그린 때 목록으로 저장하면 그 기록이 지워진 걸로 합쳐짐)
+    state.ledger = [...GetLedger(), { id: newId("m"), date: inpDate.value, amt: nAmt * +selKind.value, memo: inpMemo.value.trim() }];
     save();
     GAMES.bank();
   };

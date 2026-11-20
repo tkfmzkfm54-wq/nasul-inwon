@@ -149,6 +149,9 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("통장 화면: 들어옴·나감 추가 → 잔액, 지우기",
       [...arrBankT, GetBankChipsT(), state.ledger.map(stRec => stRec.memo)],
       [["38,000원", "50,000원", "12,000원"], 1, 2, ["-12,000원", "0원", "12,000원"], ["안주"]]);
+    state.ledger = [...state.ledger, { id: "m_other", date: "2026-11-01", amt: 3000, memo: "다른 폰" }];   // 화면을 그린 뒤 동기화로 들어온 기록 (화면은 다시 안 그림)
+    await AddLedgerT("1", "1000", "내 기록");
+    eq("통장: 화면 연 뒤 동기화된 기록을 추가가 지우지 않음", state.ledger.map(stRec => stRec.memo), ["안주", "다른 폰", "내 기록"]);
     delete state.ledger;
     const rp = ["가", "나", "다", "라"].map(name => ({ name })), cnt = rg => { state.rig = rg; let n = 0; for (let i = 0; i < 2000; i++) n += wpick(rp) === 2; return n; };
     eq("몰아주기 100 = 무조건", cnt({ on: true, names: "다", w: 100 }), 2000);
