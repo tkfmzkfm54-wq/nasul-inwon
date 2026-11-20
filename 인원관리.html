@@ -53,6 +53,8 @@ button:disabled { cursor: default; opacity: .5; }
 .stack { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
 .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .grow { flex: 1; }
+.master-badge { padding: 8px 14px; border-radius: 999px; background: linear-gradient(160deg, var(--accent-2), var(--accent)); color: var(--accent-ink); font-weight: 700; white-space: nowrap; }
+.master-badge[hidden] { display: none; }
 
 select#pick { min-width: 0; max-width: 100%; padding: 8px 32px 8px 12px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 12px center;
@@ -383,6 +385,8 @@ tr.off .chk, tr.off input.time { opacity: .45; }
   <button class="btn" id="restore" type="button">백업 불러오기</button>
   <input type="file" id="restoreFile" accept=".json" hidden>
   <button class="btn" id="cloudBtn" type="button" hidden>☁ 로그인</button>
+  <span class="master-badge" id="masterBadge" hidden>👑 마스터</span>
+  <button class="btn danger" id="masterOut" type="button" hidden>마스터 로그아웃</button>
   <span class="grow"></span>
   <button class="btn primary" id="export" type="button" hidden>엑셀로 받기</button>
 </div></header>
@@ -498,6 +502,18 @@ function load() { try { return JSON.parse(localStorage.getItem(KEY)) || { lists:
 let state = load(), hits = new Set(), pendingRender = false;
 const L = () => state.lists.find(l => l.id === state.cur);
 function save() {
+  // 보기 전용(클라우드를 쓰는데 마스터 로그인 안 함): 명단을 고친 건 되돌림. 보는 명단 고르기 같은 이 폰 값(LOCAL_ONLY_KEYS)은 그대로
+  // 모든 수정이 save()를 거치므로 여기 한 곳에서 막음
+  if (IsViewOnly()) {
+    const stSaved = load();
+    if (!IsSame(GetShared(state), GetShared(stSaved))) {
+      state = { ...stSaved, ...Object.fromEntries(LOCAL_ONLY_KEYS.filter(strKey => strKey in state).map(strKey => [strKey, state[strKey]])) };
+      if (!state.lists.some(stList => stList.id === state.cur)) {
+        state.cur = state.lists[0]?.id ?? null;
+      }
+      toast("보기 전용이에요. 명단은 마스터로 로그인해야 고칠 수 있어요.");
+    }
+  }
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
   catch { toast("저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요."); }
   render();
@@ -511,8 +527,8 @@ function say(t, kind = "") { const m = $("#msg"); m.textContent = t; m.className
 
 // ---- 클라우드 동기화 (Supabase): 주소·키를 넣으면 운영진 여러 폰이 같은 명단을 같이 씀 ----
 // 비워 두면 지금처럼 이 브라우저에만 저장. 서버 준비 순서는 같은 폴더의 클라우드_설정.sql 머리 주석.
-// 로그인 안 한 사람(보기 전용): 서버 명단을 받아 보기만 함. 고친 내용은 그 폰에만 남고 서버에는 안 올라감.
-// 마스터(비밀번호로 로그인): 고친 내용이 서버에 올라가 모두에게 보임.
+// 로그인 안 한 사람(보기 전용): 서버 명단을 받아 보기만 함. 명단을 고치면 save()가 되돌리고, 벌칙 몰아주기도 안 됨.
+// 마스터(비밀번호로 로그인): 고친 내용이 서버에 올라가 모두에게 보임. 화면 위에 👑 마스터 · 마스터 로그아웃 표시.
 // 서버에는 app_state 테이블 한 줄(id = "main")에 명단 전체를 jsonb로 둠. 이 폰에만 둘 값(LOCAL_ONLY_KEYS)은 안 올림.
 // 두 폰이 동시에 고쳐도 둘 다 살리도록, 마지막으로 서버와 맞춘 내용(base)을 기준으로 양쪽 변경을 합침(MergeValue).
 // ponytail: 명단 전체를 한 줄로 주고받음. 명단이 수백 개로 커져 느려지면 명단별 줄로 나눌 것
@@ -538,6 +554,8 @@ const g_stCloud = {
   nTimer: 0,
   strState: "",
 };
+// 클라우드를 쓰는데 마스터 로그인을 안 함 = 보기만 (명단 수정·벌칙 몰아주기 안 됨). 클라우드를 안 쓰면 늘 false
+const IsViewOnly = () => !!g_stCloud.pClient && !g_stCloud.bLogin;
 
 // 서버에 올릴 부분: 이 폰에만 둘 값을 뺀 state 사본
 function GetShared(stState) {
@@ -842,7 +860,9 @@ async function StartCloudAsync(strUrl, strKey) {
   g_stCloud.pClient.auth.onAuthStateChange((strEvent, stSession) => {
     g_stCloud.bLogin = !!stSession;
     $("#saveWhere").textContent = g_stCloud.bLogin ? "마스터로 로그인: 고친 내용이 서버에 저장돼 모두에게 보여요."
-      : "서버 명단을 보는 중이에요. 여기서 고친 건 이 폰에만 남아요. (마스터는 ☁ 로그인)";
+      : "서버 명단을 보는 중이에요(보기 전용). 고치려면 ☁ 로그인에서 마스터 비밀번호를 넣어 주세요.";
+    $("#masterBadge").hidden = !g_stCloud.bLogin;
+    $("#masterOut").hidden = !g_stCloud.bLogin;
     if (!g_stCloud.bLogin) {
       SetCloudStatus("login");
     }
@@ -921,10 +941,15 @@ $("#cloudBtn").addEventListener("click", async () => {
     }
     return SyncCloudAsync();
   }
+  await LogoutMasterAsync();
+});
+$("#masterOut").addEventListener("click", LogoutMasterAsync);
+
+async function LogoutMasterAsync() {
   await SyncCloudAsync();   // 못 올린 변경이 있으면 먼저 올림
   await g_stCloud.pClient.auth.signOut({ scope: "local" });   // 이 폰만 로그아웃 (같은 계정을 쓰는 다른 폰은 유지)
-  toast("로그아웃했어요. 명단은 이 폰에 남아 있어요.");
-});
+  toast("마스터에서 로그아웃했어요. 이제 보기 전용이에요.");
+}
 addEventListener("DOMContentLoaded", () => StartCloudAsync(CLOUD_URL, CLOUD_KEY));
 
 // ---- 화면 ----
@@ -1427,7 +1452,7 @@ const colorFor = p => `hsl(${(L().people.findIndex(x => x.id === p.id) * 137.508
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 // 😈 비밀 모드 '벌칙 몰아주기' (로고 2초 길게 누르기): 걸릴 사람(팀)을 가중치로 먼저 뽑고, 게임이 그 결과로 흘러가게 함
-const rigOn = () => !!(state.rig?.on && state.rig.names);
+const rigOn = () => !IsViewOnly() && !!(state.rig?.on && state.rig.names);   // 마스터만: 보기 전용 폰에 예전에 켜 둔 것도 안 먹음
 function weightOf(s) {   // 지정한 사람(또는 그 사람이 낀 팀) = 정한 배수, 나머지 = 1
   if (!rigOn()) return 1;
   const b = new Set(state.rig.names.split(/[,，]/).map(norm).filter(Boolean));
@@ -2254,6 +2279,7 @@ brand.addEventListener("pointerdown", () => { clearTimeout(pressTimer); pressTim
 for (const ev of ["pointerup", "pointerleave", "pointercancel"]) brand.addEventListener(ev, () => clearTimeout(pressTimer));
 brand.addEventListener("contextmenu", e => e.preventDefault());   // 길게 누를 때 뜨는 메뉴 막기
 async function rigMode() {
+  if (IsViewOnly()) return;   // 마스터만 (보기 전용이면 아무 반응 없이 숨김)
   const rg = state.rig || {}, list = L();
   if (!list?.people.length) return toast("먼저 명단에 사람을 넣어 주세요.");
   const picked = (rg.names || "").split(/[,，]/).map(norm);
