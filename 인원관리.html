@@ -410,7 +410,10 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .notice a { color: var(--accent); font-weight: 700; }
 .notice .btn { justify-self: start; }
 /* 모임 통장: 날짜·구분·금액·내용 한 줄 (좁으면 줄바꿈), 금액은 들어옴 초록·나감 빨강 */
-.bank-sum .chip b { font-size: 18px; overflow-wrap: anywhere; }   /* 금액이 길어 폰 폭에서 넘치지 않게 */
+/* 금액이 길어 폰 폭에서 넘치지 않게: 잔액은 한 줄 전체, 이번 달 들어옴·나감은 아래 두 칸 */
+.bank-sum { grid-template-columns: 1fr 1fr; }
+.bank-sum .chip.lead { grid-column: 1 / -1; }
+.bank-sum .chip b { font-size: 20px; overflow-wrap: anywhere; }
 .bank-form .bank-amt { width: 7.5em; }
 .bank-form .bank-memo { flex: 1; min-width: 8em; }
 .bank-in, .bank-out { font-weight: 700; text-align: right !important; white-space: nowrap; }
