@@ -76,6 +76,36 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     d.querySelector("#f_amt").value = "15000"; d.querySelector("#f_acct").value = "국민 123-45"; submit(); await tick();
     eq("회비 저장", [cur.fee, state.acct], [{ amt: 15000, col: "c1", acct: "국민 123-45" }, "국민 123-45"]);
     eq("회비 결과 창", d.querySelector(".note")?.textContent.split("\n").slice(-2), ["입금 1명 × 15,000원 = 15,000원", "미입금 3명 (45,000원): 이영희B, 정하나, 한지민"]); d.close();
+
+    // 다음 정모 공지
+    const dtNowN = new Date(2026, 10, 20, 23, 30);
+    eq("공지: 남은 날 (오늘 0·지남 음수·해 넘김)",
+      [CalcDaysLeft("2026-11-28", dtNowN), CalcDaysLeft("2026-11-20", dtNowN), CalcDaysLeft("2026-11-19", dtNowN), CalcDaysLeft("2027-01-01", dtNowN)], [8, 0, -1, 42]);
+    eq("공지: 지도 링크 (http만 그대로, 아니면 장소 검색, javascript: 안 씀)",
+      [GetMapUrl({ map: "https://naver.me/abc", place: "x" }), GetMapUrl({ map: "", place: "강남 포차" }), GetMapUrl({ map: "javascript:alert(1)", place: "" }), GetMapUrl({ place: "" })],
+      ["https://naver.me/abc", "https://map.naver.com/p/search/%EA%B0%95%EB%82%A8%20%ED%8F%AC%EC%B0%A8", "", ""]);
+    eq("공지 글", GetNoticeText({ date: "2026-11-28", time: "19:00", place: "강남 포차", map: "https://naver.me/abc", memo: "회비 2만원" }).split("\n"),
+      ["📢 다음 정모", "📅 11월 28일 (토) 19:00", "📍 강남 포차", "🗺 https://naver.me/abc", "회비 2만원", "", "👉 https://tkfmzkfm54-wq.github.io/nasul-inwon/"]);
+    $("#noticeBtn").click();
+    await tick();
+    d.querySelector("#f_date").value = new Date(Date.now() + 3 * 86400000).toLocaleDateString("sv");
+    d.querySelector("#f_place").value = "강남 포차";
+    submit();
+    await tick();
+    const arrNoticeT = [$("#notice").hidden, $("#notice .notice-dday")?.textContent, $("#notice a")?.href.startsWith("https://map.naver.com/"), getComputedStyle($("#notice")).display !== "none"];
+    showTab("stats");
+    arrNoticeT.push(getComputedStyle($("#notice")).display);
+    showTab("list");
+    eq("공지 올리기: 명단 화면 맨 위 카드·D-3·지도 링크, 놀이 화면에선 숨김", arrNoticeT, [false, "D-3", true, true, "none"]);
+    $("#noticeBtn").click();
+    await tick();
+    d.querySelector("#f_map").value = "javascript:alert(1)";
+    submit();
+    await tick();
+    eq("공지: http 아닌 지도 링크는 거부", [d.open, d.querySelector(".err").textContent], [true, "지도 링크는 http로 시작하는 주소를 넣어 주세요."]);
+    d.querySelector(".actions .left").click();
+    await tick();
+    eq("공지 내리기", ["notice" in state, $("#notice").hidden], [false, true]);
     const rp = ["가", "나", "다", "라"].map(name => ({ name })), cnt = rg => { state.rig = rg; let n = 0; for (let i = 0; i < 2000; i++) n += wpick(rp) === 2; return n; };
     eq("몰아주기 100 = 무조건", cnt({ on: true, names: "다", w: 100 }), 2000);
     eq("몰아주기 100, 대상 빠지면 골고루", (() => { state.rig = { on: true, names: "없음", w: 100 }; const s = new Set(); for (let i = 0; i < 200; i++) s.add(wpick(rp)); return s.size; })(), 4);

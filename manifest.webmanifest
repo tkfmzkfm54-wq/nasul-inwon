@@ -1,0 +1,12 @@
+{
+  "name": "나는술로 인원관리",
+  "short_name": "나는술로",
+  "start_url": "인원관리.html",
+  "scope": "./",
+  "background_color": "#f5efe4",
+  "theme_color": "#c2700f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

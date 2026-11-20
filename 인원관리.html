@@ -2,6 +2,18 @@
 <html lang="ko"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>나는술로 인원관리</title>
+<!-- 링크 미리보기(카톡 등)·홈 화면 아이콘 (그림 원본 위치는 프로젝트 요약에 적어 둠) -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tkfmzkfm54-wq.github.io/nasul-inwon/">
+<meta property="og:title" content="나는술로 인원관리">
+<meta property="og:description" content="정모 명단·공지·회비 정산·벌칙 놀이·방명록">
+<meta property="og:image" content="https://tkfmzkfm54-wq.github.io/nasul-inwon/og.png">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="400">
+<meta name="theme-color" content="#c2700f">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
 <style>
 /* 레이아웃: 위 헤더(브랜드·명단 고르기·버튼) → 제목 카드(제목 + 숫자 타일) → 이름 입력 → 표 카드. 표만 가로 스크롤, 이름 칸 고정 */
@@ -388,6 +400,15 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .talk-meta .del { margin-left: auto; opacity: 1; }
 .talk-item p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .talk-empty { color: var(--muted); text-align: center; padding: 14px 0; }
+/* 다음 정모 공지 카드: 명단 화면에서만 (놀이 화면에선 자리만 차지) */
+.notice { display: grid; gap: 6px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow); }
+#app:has(#view-list[hidden]) .notice { display: none; }
+.notice-head { display: flex; gap: 8px; align-items: center; }
+.notice-head b { font: 18px var(--font-display); }
+.notice-dday { margin-left: auto; padding: 2px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.notice strong { font-size: 17px; }
+.notice a { color: var(--accent); font-weight: 700; }
+.notice .btn { justify-self: start; }
 
 /* 폰 돌리기 놀이: 업다운 · 폭탄 돌리기 · 반응속도 · 라이어 */
 .pass-wrap { justify-items: center; text-align: center; }
@@ -450,6 +471,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 <main class="wrap">
   <section id="app" hidden>
     <div class="stack">
+      <section id="notice" class="notice" aria-label="다음 정모 공지" hidden></section>
       <div class="hero">
         <input id="title" aria-label="명단 제목 (엑셀 첫 줄)" placeholder="제목 (예: 10월 정모 인원 현황)">
         <div class="stats" id="stats"></div>
@@ -501,6 +523,7 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button class="btn" id="copy" type="button">글로 복사</button>
         <button class="btn" id="copyMiss" type="button">안 한 사람 복사</button>
         <button class="btn" id="fee" type="button">💰 회비 정산</button>
+        <button class="btn" id="noticeBtn" type="button">📢 정모 공지</button>
         <button class="btn" id="sortBtn" type="button">↕ 정렬</button>
         <button class="btn" id="fromOld" type="button">지난 명단에서</button>
         <span class="grow"></span>
@@ -1293,6 +1316,7 @@ function render() {
   const cols = list.cols, people = list.people, here = live(list);
   const val = (p, c) => p.v?.[c.id];
 
+  ShowNotice();
   $("#stats").replaceChildren(
     h("span", { class: "chip lead" }, "인원", h("b", {}, `${here.length}명`)),
     ...cols.map(c => h("span", { class: "chip" }, c.name, h("b", {}, String(here.filter(p => val(p, c)).length) + (c.kind === "time" ? "명" : "")))));
@@ -1514,6 +1538,81 @@ $("#fee").addEventListener("click", async () => {
   save();
   const text = feeText(list, +v.amt, checks.find(c => c.id === v.col), v.acct);
   if (await ask({ title: "회비 정산", ok: "📋 복사", fields: [{ type: "note", text }] })) copyText(text);
+});
+
+// ---- 다음 정모 공지: 날짜·시간·장소·지도 링크·메모. 모든 명단 공통(state.notice), 명단 화면 맨 위 카드. 날짜가 지나면 안 보임 ----
+const SHARE_URL = "https://tkfmzkfm54-wq.github.io/nasul-inwon/";   // 공지 글 끝에 붙이는 공유 주소
+const WEEKDAY_NAMES = "일월화수목금토";
+
+// 정모까지 남은 날: 오늘 = 0, 지났으면 음수. strDate = "YYYY-MM-DD"(달력 입력 값)
+function CalcDaysLeft(strDate, dtNow) {
+  const [nY, nM, nD] = strDate.split("-").map(Number);
+  const dtToday = new Date(dtNow.getFullYear(), dtNow.getMonth(), dtNow.getDate());
+  return Math.round((new Date(nY, nM - 1, nD) - dtToday) / 86400000);
+}
+
+// 지도 링크: http(s) 주소면 그대로, 아니면 장소 이름으로 네이버 지도 검색. javascript: 같은 주소는 링크로 안 씀
+function GetMapUrl(stNotice) {
+  if (/^https?:\/\//i.test(stNotice.map || "")) {
+    return stNotice.map;
+  }
+  return stNotice.place ? `https://map.naver.com/p/search/${encodeURIComponent(stNotice.place)}` : "";
+}
+
+// "11월 28일 (금) 19:00" (시간은 넣었을 때만)
+function GetNoticeWhen(stNotice) {
+  const [nY, nM, nD] = stNotice.date.split("-").map(Number);
+  const strDay = WEEKDAY_NAMES[new Date(nY, nM - 1, nD).getDay()];
+  return `${nM}월 ${nD}일 (${strDay})` + (stNotice.time ? ` ${stNotice.time}` : "");
+}
+
+// 카톡에 붙여 넣을 공지 글
+function GetNoticeText(stNotice) {
+  const strMap = GetMapUrl(stNotice);
+  return ["📢 다음 정모", `📅 ${GetNoticeWhen(stNotice)}`,
+    ...(stNotice.place ? [`📍 ${stNotice.place}`] : []),
+    ...(strMap ? [`🗺 ${strMap}`] : []),
+    ...(stNotice.memo ? [stNotice.memo] : []),
+    "", `👉 ${SHARE_URL}`].join("\n");
+}
+
+function ShowNotice() {
+  const stNotice = state.notice;
+  const elBox = $("#notice");
+  elBox.hidden = !stNotice?.date || CalcDaysLeft(stNotice.date, new Date()) < 0;
+  if (elBox.hidden) {
+    return;
+  }
+  const nLeft = CalcDaysLeft(stNotice.date, new Date());
+  const strMap = GetMapUrl(stNotice);
+  elBox.replaceChildren(
+    h("div", { class: "notice-head" }, h("b", {}, "📢 다음 정모"), h("span", { class: "notice-dday" }, nLeft ? `D-${nLeft}` : "오늘!")),
+    h("strong", {}, GetNoticeWhen(stNotice)),
+    ...(stNotice.place || strMap ? [h("div", {}, `📍 ${stNotice.place || ""} `, ...(strMap ? [h("a", { href: strMap, target: "_blank", rel: "noopener" }, "지도 보기")] : []))] : []),
+    ...(stNotice.memo ? [h("p", { class: "note" }, stNotice.memo)] : []),
+    h("button", { type: "button", class: "btn", onclick: () => copyText(GetNoticeText(stNotice)) }, "📋 공지 글 복사"));
+}
+
+$("#noticeBtn").addEventListener("click", async () => {
+  const stOld = state.notice || {};
+  const v = await ask({ title: "📢 다음 정모 공지", ok: "올리기", extra: state.notice ? "공지 내리기" : null,
+    fields: [{ id: "date", type: "date", label: "날짜", value: stOld.date },
+             { id: "time", type: "time", label: "시간 (비워도 돼요)", value: stOld.time },
+             { id: "place", label: "장소", value: stOld.place },
+             { id: "map", label: "지도 링크 (비우면 장소 이름으로 네이버 지도 검색)", value: stOld.map },
+             { id: "memo", label: "메모 (회비·준비물 등, 비워도 돼요)", value: stOld.memo }],
+    validate: v => !v.date ? "날짜를 골라 주세요."
+      : v.map && !/^https?:\/\//i.test(v.map) ? "지도 링크는 http로 시작하는 주소를 넣어 주세요."
+      : null });
+  if (!v) {
+    return;
+  }
+  if (v.extra) {
+    delete state.notice;
+  } else {
+    state.notice = { date: v.date, time: v.time, place: v.place, map: v.map, memo: v.memo };
+  }
+  save();
 });
 
 // ---- 참석 통계: 모든 명단을 모아 사람별 참석 횟수(취소 제외)와 마지막으로 나온 명단. 같은 사람 = 이름이 같은 사람 ----
