@@ -78,8 +78,58 @@ addEventListener("unhandledrejection", e => errs.push("rej " + e.reason));
     eq("몰아주기 100, 대상 빠지면 골고루", (() => { state.rig = { on: true, names: "없음", w: 100 }; const s = new Set(); for (let i = 0; i < 200; i++) s.add(wpick(rp)); return s.size; })(), 4);
     eq("몰아주기 끔 = 무조건 아님", cnt({ on: false, names: "다", w: 100 }) < 2000, true); state.rig = null;
 
+    // 폰 돌리기 놀이 규칙 (화면 없이 규칙 함수만)
+    const stUd = { arrPs: [{}, {}, {}], nTurn: 0, nLo: 1, nHi: 100, nSecret: 42, nLoser: -1 };
+    eq("업다운: 업·범위 밖·정수 아님·다운·맞힘",
+      [CalcUpDown(stUd, 30), stUd.nLo, CalcUpDown(stUd, 30), CalcUpDown(stUd, 40.5), CalcUpDown(stUd, 60), stUd.nHi, CalcUpDown(stUd, 42)],
+      ["up", 31, "", "", "down", 59, "hit"]);
+    const stRigUd = { arrPs: [{}, {}, {}], nTurn: 0, nLo: 1, nHi: 100, nLoser: 2 };
+    eq("업다운 몰아주기: 다른 사람은 안 맞음", Array.from({ length: 100 }, (_, nIdx) => CalcRiggedUpDown(stRigUd, nIdx + 1)).includes("hit"), false);
+    eq("업다운 몰아주기: 넓은 쪽을 남김",
+      [CalcRiggedUpDown(stRigUd, 1), CalcRiggedUpDown(stRigUd, 100), CalcRiggedUpDown(stRigUd, 30), CalcRiggedUpDown(stRigUd, 70)], ["up", "down", "up", "down"]);
+    Object.assign(stRigUd, { nTurn: 2, nLo: 10, nHi: 12 });
+    eq("업다운 몰아주기: 범위 ≤ 인원이면 걸릴 사람이 맞음", CalcRiggedUpDown(stRigUd, 11), "hit");
+    Object.assign(stRigUd, { nTurn: 0, nLo: 5, nHi: 5 });
+    eq("업다운 몰아주기: 남은 숫자가 하나면 누구든 맞음", CalcRiggedUpDown(stRigUd, 5), "hit");
+    const stBombT = { arrPs: [{}, {}, {}], nHolder: 0, nEndAt: 1000, nLoser: -1 };
+    eq("폭탄: 시간 되면 터짐", [CheckBombBoom(stBombT, 999), CheckBombBoom(stBombT, 1000)], [false, true]);
+    stBombT.nLoser = 2;
+    const arrBomb = [CheckBombBoom(stBombT, 1500)];
+    PassBomb(stBombT, 1500);
+    arrBomb.push(stBombT.nHolder, CheckBombBoom(stBombT, 1500));
+    PassBomb(stBombT, 1600);
+    arrBomb.push(stBombT.nHolder, stBombT.nEndAt >= 1900 && stBombT.nEndAt <= 2800, CheckBombBoom(stBombT, 1700), CheckBombBoom(stBombT, 2900));
+    PassBomb(stBombT, 1700);
+    arrBomb.push(CheckBombBoom(stBombT, 2900));
+    eq("폭탄 몰아주기: 시간 지나도 걸릴 사람이 들고 있을 때만 터짐", arrBomb, [false, 1, false, 2, true, false, true, false]);
+    eq("반응속도 꼴찌 (부정출발 포함, 같으면 앞 사람)", [FindSlowest([200, Infinity, 300]), FindSlowest([200, 350, 300]), FindSlowest([250, 250]), FindSlowest([])], [1, 1, 0, -1]);
+    const stLiarT = CreateLiarRound(rp, "음식");
+    eq("라이어: 고른 주제의 제시어 + 라이어 한 명", [stLiarT.strTopic, LIAR_WORDS["음식"].includes(stLiarT.strWord), stLiarT.nLiar >= 0 && stLiarT.nLiar < 4], ["음식", true, true]);
+    state.rig = { on: true, names: "다", w: 100 };
+    eq("라이어 몰아주기 100 = 그 사람이 라이어", Array.from({ length: 30 }, () => CreateLiarRound(rp, "").nLiar).every(nLiar => nLiar === 2), true);
+    state.rig = null;
+    showTab("cannon"); await tick();
+    const tgt = players().at(-1).name, n0 = L().tally.length; state.rig = { on: true, names: tgt, w: 100 };
+    document.querySelector("#view-game .btn.primary").click(); await new Promise(r => setTimeout(r, 6000));
+    eq("대포 뽑기: 몰아준 사람 명중·기록", [L().tally.length - n0, L().tally.at(-1).name, L().tally.at(-1).game], [1, tgt, "대포 뽑기"]);
+    eq("대포 뽑기: 맞은 사람 빠짐", document.querySelector("#view-game .lad-result").textContent, `남은 ${players().length - 1}명 · 맞은 ${tgt}`);
+    state.rig = null; document.querySelector("#view-game .banner").click();
     for (const b of document.querySelectorAll("#tabs button")) { b.click(); await tick(); }
-    eq("탭 12개 열림 (명단·방명록·놀이 9·통계)", document.querySelectorAll("#tabs button").length, 12);
+    eq("탭 16개 열림 (명단·방명록·놀이 13·통계)", document.querySelectorAll("#tabs button").length, 16);
+    showTab("react");
+    await tick();
+    const btnPadT = document.querySelector("#view-game .rx-pad");
+    btnPadT.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await tick();
+    eq("반응속도: 누르면 빨간 화면(기다리기)", btnPadT.classList.contains("wait"), true);
+    btnPadT.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await tick();
+    eq("반응속도: 초록 전에 누르면 부정출발 기록", document.querySelector("#view-game .rank li")?.textContent.endsWith("부정출발 ✖"), true);
+    showTab("updown");
+    await tick();
+    document.querySelector("#view-game .ud-form input").value = "0";
+    document.querySelector("#view-game .ud-form").requestSubmit();
+    eq("업다운: 범위 밖 숫자는 안내", $("#toast").textContent, "1~100 사이 숫자를 넣어 주세요.");
 
     // ---- 클라우드 동기화: 가짜 서버로 시험 (네트워크 안 씀) ----
     eq("클라우드 안 켜면 클라이언트 없음·버튼 숨김", [g_stCloud.pClient, $("#cloudBtn").hidden], [null, true]);

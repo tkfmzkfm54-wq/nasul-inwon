@@ -389,6 +389,29 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .talk-item p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .talk-empty { color: var(--muted); text-align: center; padding: 14px 0; }
 
+/* 폰 돌리기 놀이: 업다운 · 폭탄 돌리기 · 반응속도 · 라이어 */
+.pass-wrap { justify-items: center; text-align: center; }
+.ud-range { font: clamp(44px, 10vw, 96px)/1.1 var(--font-display); color: var(--accent); font-variant-numeric: tabular-nums; }
+.ud-msg { font: 26px/1.2 var(--font-display); min-height: 1.2em; }
+.ud-form { display: flex; gap: 6px; justify-content: center; }
+.ud-form input { width: 6em; text-align: center; font-size: 22px; padding: 8px; border: 2px solid var(--line); border-radius: 14px; background: var(--surface); }
+.ud-form input:focus { border-color: var(--accent); outline: none; }
+.bomb { font-size: clamp(90px, 22vw, 180px); line-height: 1; }
+.bomb.run { animation: bomb-tick var(--beat, .6s) ease-in-out infinite; }
+@keyframes bomb-tick { 50% { transform: scale(1.1) rotate(-5deg); } }
+.holder { font: clamp(34px, 8vw, 64px)/1.1 var(--font-display); }
+.rx-pad { width: 100%; min-height: 46vh; border: 0; border-radius: 22px; display: grid; place-content: center; gap: 8px; padding: 20px; text-align: center;
+  touch-action: manipulation; -webkit-user-select: none; user-select: none; color: #fff; background: #3b3f4a; font: clamp(28px, 6vw, 52px)/1.2 var(--font-display); }
+.rx-pad small { font: 500 16px/1.4 var(--font-body); opacity: .85; }
+.rx-pad.wait { background: #c62828; }
+.rx-pad.go { background: #2e9b4f; }
+.pass-wrap .rank-box { width: min(420px, 100%); text-align: left; }
+.liar-card { width: min(440px, 100%); min-height: 230px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 22px;
+  border-radius: 20px; background: var(--surface); border: 2px dashed var(--line); box-shadow: var(--shadow); }
+.liar-card strong { font: clamp(34px, 8vw, 54px)/1.15 var(--font-display); color: var(--accent); word-break: keep-all; }
+.liar-card.liar strong { color: var(--warn); }
+.liar-card small { color: var(--muted); }
+.liar-card .bar { justify-content: center; }
 </style>
 
 <header class="top"><div class="in">
@@ -426,6 +449,10 @@ tr.off .chk, tr.off input.time { opacity: .45; }
         <button type="button" data-tab="pirate" aria-selected="false">🏴‍☠️ 해적 룰렛</button>
         <button type="button" data-tab="ladder" aria-selected="false">🪜 사다리</button>
         <button type="button" data-tab="race" aria-selected="false">🏇 경마</button>
+        <button type="button" data-tab="updown" aria-selected="false">🔢 업다운</button>
+        <button type="button" data-tab="bomb" aria-selected="false">💣 폭탄 돌리기</button>
+        <button type="button" data-tab="react" aria-selected="false">⚡ 반응속도</button>
+        <button type="button" data-tab="liar" aria-selected="false">🕵️ 라이어</button>
         <button type="button" data-tab="seats" aria-selected="false">🪑 자리배치</button>
         <button type="button" data-tab="stats" aria-selected="false">🍺 벌칙 통계</button>
       </nav>
@@ -2462,6 +2489,460 @@ GAMES.guest = () => {
   ShowTalk(COMMENT_GUEST_ROOM, elHost);
 };
 
+// ================= 폰 돌리기 놀이: 업다운 · 폭탄 돌리기 · 반응속도 · 라이어 (개인전) =================
+// 폰 하나를 차례대로 넘기며 함. 차례는 시작할 때 섞은 순서(sides)대로 화면 아래에 보여 줌
+// 벌칙 몰아주기: 업다운·폭탄 돌리기·라이어는 적용, 반응속도는 실력으로 정해지는 놀이라 적용 안 함
+const BOMB_TIMES = { short: [10, 30], normal: [20, 60], long: [40, 90] };   // 폭탄이 터지는 시간 범위(초)
+const LIAR_WORDS = {
+  음식: ["김치찌개", "삼겹살", "떡볶이", "짜장면", "피자", "초밥", "치킨", "라면", "비빔밥", "순대국", "햄버거", "마라탕"],
+  동물: ["고양이", "강아지", "호랑이", "펭귄", "기린", "코끼리", "원숭이", "돌고래", "판다", "햄스터", "독수리", "거북이"],
+  장소: ["찜질방", "놀이공원", "편의점", "공항", "도서관", "노래방", "캠핑장", "병원", "헬스장", "영화관", "수영장", "학교"],
+  직업: ["소방관", "요리사", "의사", "선생님", "경찰관", "유튜버", "택배기사", "가수", "미용사", "개발자", "농부", "비행기 조종사"],
+  "술·안주": ["소주", "맥주", "막걸리", "하이볼", "와인", "골뱅이무침", "노가리", "감자튀김", "오뎅탕", "파전", "육회", "치즈"],
+  물건: ["우산", "냉장고", "칫솔", "휴대폰", "안경", "이어폰", "선풍기", "베개", "지갑", "시계", "자전거", "리모컨"],
+};
+
+// 짧은 소리 (폭탄 똑딱·펑, 반응속도 신호). 소리가 안 나도 놀이는 진행
+function PlayTone(pAudio, nHz, dSec, strType = "square") {
+  if (!pAudio) {
+    return;
+  }
+  try {
+    const pOsc = pAudio.createOscillator();
+    const pGain = pAudio.createGain();
+    pOsc.type = strType;
+    pOsc.frequency.value = nHz;
+    pGain.gain.setValueAtTime(0.25, pAudio.currentTime);
+    pGain.gain.exponentialRampToValueAtTime(0.001, pAudio.currentTime + dSec);
+    pOsc.connect(pGain).connect(pAudio.destination);
+    pOsc.start();
+    pOsc.stop(pAudio.currentTime + dSec);
+  } catch {
+    // 소리 장치가 없거나 막힘
+  }
+}
+function CreateAudio() {
+  try {
+    return new (window.AudioContext || window.webkitAudioContext)();
+  } catch {
+    return null;
+  }
+}
+
+// 차례 띠: 참가자 순서, 지금 차례 강조
+function CreateTurnStrip(arrPs, stNow) {
+  return arrPs.map(stP => h("span", { class: "ps-chip" + (stP === stNow ? " now" : "") }, h("i", { class: "tok", style: `background:${stP.c}` }), stP.name));
+}
+
+/**
+ * 업다운 한 번 부르기: 숨은 숫자와 비교해 범위를 좁힘
+ * 몰아주기(nLoser ≥ 0)면 숨은 숫자를 정해 두지 않고, 걸릴 사람 차례에 맞도록 범위 안에서 답을 고름
+ * @return "hit" 맞힘(당첨) | "up" | "down" | "" 범위 밖이거나 정수가 아님
+ */
+function CalcUpDown(stUd, nGuess) {
+  if (!Number.isInteger(nGuess) || nGuess < stUd.nLo || nGuess > stUd.nHi) {
+    return "";
+  }
+  let strRes = "";
+  if (stUd.nLoser < 0) {
+    strRes = nGuess === stUd.nSecret ? "hit" : nGuess < stUd.nSecret ? "up" : "down";
+  } else {
+    strRes = CalcRiggedUpDown(stUd, nGuess);
+  }
+  if (strRes === "up") {
+    stUd.nLo = nGuess + 1;
+  } else if (strRes === "down") {
+    stUd.nHi = nGuess - 1;
+  } else {
+    stUd.nSecret = nGuess;
+  }
+  return strRes;
+}
+
+// 몰아주기 업다운: 걸릴 사람은 범위가 인원 수 이하이거나 확률(인원/범위)로 맞음.
+// 다른 사람은 남은 숫자가 하나뿐일 때만 맞고, 아니면 더 넓은 쪽을 남김
+// ponytail: 인원이 많고 다들 가운데를 부르면 걸릴 사람 차례 전에 범위가 1로 좁혀져 다른 사람이 걸릴 수 있음
+function CalcRiggedUpDown(stUd, nGuess) {
+  const nSize = stUd.nHi - stUd.nLo + 1;
+  const nPs = stUd.arrPs.length;
+  const bLoserTurn = stUd.nTurn === stUd.nLoser;
+  if (nSize === 1 || (bLoserTurn && (nSize <= nPs || Math.random() < nPs / nSize))) {
+    return "hit";
+  }
+  const nUpLeft = stUd.nHi - nGuess;   // "업"이면 남는 숫자 수
+  const nDownLeft = nGuess - stUd.nLo;   // "다운"이면 남는 숫자 수
+  if (nUpLeft === nDownLeft) {
+    return Math.random() < 0.5 ? "up" : "down";
+  }
+  return nUpLeft > nDownLeft ? "up" : "down";
+}
+
+// ---- 업다운: 숨은 숫자를 차례로 불러 범위를 좁힘. 숨은 숫자를 부른 사람이 당첨 ----
+GAMES.updown = () => {
+  const selMax = h("select", { class: "sel", "aria-label": "숫자 범위" }, [50, 100, 300].map(nMax => h("option", { value: nMax }, `1~${nMax}`)));
+  selMax.value = "100";
+  const btnNew = h("button", { type: "button", class: "btn primary" }, "🔀 새 판");
+  const elTurn = h("div", { class: "turn" });
+  const elRange = h("div", { class: "ud-range" });
+  const elMsg = h("div", { class: "ud-msg" });
+  const inpGuess = h("input", { type: "number", inputmode: "numeric", "aria-label": "부를 숫자" });
+  const frmCall = h("form", { class: "ud-form", autocomplete: "off" }, inpGuess, h("button", { type: "submit", class: "btn primary big" }, "부르기"));
+  const elStrip = h("div", { class: "ps-strip" });
+  let stUd = null;
+  mount("🔢 업다운", [selMax, btnNew], h("div", { class: "stack pass-wrap" }, elTurn, elRange, elMsg, frmCall, elStrip), () => StartRound());
+
+  function StartRound() {
+    const arrPs = sides().ps;
+    const nMax = +selMax.value;
+    stUd = { arrPs, nTurn: 0, nLo: 1, nHi: nMax, nSecret: 1 + Math.floor(Math.random() * nMax), nLoser: -1, stOut: null };
+    if (rigOn() && arrPs.length) {
+      stUd.nLoser = wpick(arrPs);
+    }
+    elMsg.textContent = "";
+    Paint();
+  }
+  function Paint() {
+    const stNow = stUd.arrPs[stUd.nTurn];
+    const bPlay = stUd.arrPs.length >= 2 && !stUd.stOut;
+    frmCall.hidden = !bPlay;
+    elRange.textContent = stUd.stOut ? `💣 ${stUd.nSecret}` : `${stUd.nLo} ~ ${stUd.nHi}`;
+    if (stUd.arrPs.length < 2) {
+      elTurn.replaceChildren("참가자가 2명 이상이어야 해요");
+    } else if (stUd.stOut) {
+      elTurn.replaceChildren(h("span", { class: "boom" }, "💥 ", h("span", { style: `color:${stUd.stOut.c}` }, stUd.stOut.name), " 당첨!"),
+        h("small", {}, "‘새 판’을 누르면 다시 시작"));
+    } else {
+      elTurn.replaceChildren(h("span", { style: `color:${stNow.c}` }, stNow.name), " 차례", h("small", {}, "범위 안 숫자를 부르세요. 숨은 숫자를 부르면 당첨!"));
+    }
+    elStrip.replaceChildren(...CreateTurnStrip(stUd.arrPs, bPlay ? stNow : null));
+  }
+  frmCall.onsubmit = e => {
+    e.preventDefault();
+    const nGuess = Number(inpGuess.value);
+    const strRes = CalcUpDown(stUd, nGuess);
+    if (!strRes) {
+      toast(`${stUd.nLo}~${stUd.nHi} 사이 숫자를 넣어 주세요.`);
+      return;
+    }
+    inpGuess.value = "";
+    if (strRes === "hit") {
+      stUd.stOut = stUd.arrPs[stUd.nTurn];
+      elMsg.textContent = `${nGuess}! 펑 💥`;
+      record(stUd.stOut, "업다운");
+    } else {
+      elMsg.textContent = strRes === "up" ? `${nGuess} ⬆ 업!` : `${nGuess} ⬇ 다운!`;
+      stUd.nTurn = (stUd.nTurn + 1) % stUd.arrPs.length;
+    }
+    Paint();
+  };
+  selMax.onchange = StartRound;
+  btnNew.onclick = StartRound;
+  StartRound();
+};
+
+// 폭탄이 터질 때인지: 시간이 됐고, 몰아주기면 걸릴 사람이 들고 있을 때만
+function CheckBombBoom(stBomb, nNow) {
+  return nNow >= stBomb.nEndAt && (stBomb.nLoser < 0 || stBomb.nHolder === stBomb.nLoser);
+}
+// 다음 사람에게 넘김. 몰아주기면 시간이 지난 뒤 걸릴 사람이 받는 순간부터 잠깐(0.3~1.2초) 뒤에 터짐
+function PassBomb(stBomb, nNow) {
+  stBomb.nHolder = (stBomb.nHolder + 1) % stBomb.arrPs.length;
+  if (stBomb.nLoser >= 0 && stBomb.nHolder === stBomb.nLoser && nNow >= stBomb.nEndAt) {
+    stBomb.nEndAt = nNow + 300 + Math.random() * 900;
+  }
+}
+
+// ---- 폭탄 돌리기: 똑딱거리는 동안 '넘기기'를 누르고 다음 사람에게 폰을 건넴. 터질 때 든 사람이 당첨 ----
+GAMES.bomb = () => {
+  const selTime = h("select", { class: "sel", "aria-label": "터지는 시간" },
+    h("option", { value: "short" }, "10~30초"), h("option", { value: "normal" }, "20~60초"), h("option", { value: "long" }, "40~90초"));
+  selTime.value = "normal";
+  const btnStart = h("button", { type: "button", class: "btn primary" }, "💣 시작");
+  const elBomb = h("div", { class: "bomb", "aria-hidden": "true" }, "💣");
+  const elHolder = h("div", { class: "holder" });
+  const btnPass = h("button", { type: "button", class: "btn primary big" }, "넘기기 ➡");
+  const elInfo = h("p", { class: "lad-result" });
+  const elStrip = h("div", { class: "ps-strip" });
+  let stBomb = null;
+  let nTimer = 0;
+  let pAudio = null;
+  mount("💣 폭탄 돌리기", [selTime, btnStart], h("div", { class: "stack pass-wrap" }, elBomb, elHolder, btnPass, elInfo, elStrip), () => {
+    if (!stBomb.bRun) {
+      Ready();
+    }
+  });
+
+  function Ready() {
+    stBomb = { arrPs: sides().ps, nHolder: 0, nStart: 0, nEndAt: 0, nLoser: -1, bRun: false, stOut: null };
+    Paint();
+  }
+  function Start() {
+    if (stBomb.arrPs.length < 2) {
+      toast("참가자가 2명 이상이어야 해요.");
+      return;
+    }
+    const [nMinSec, nMaxSec] = BOMB_TIMES[selTime.value];
+    const nNow = performance.now();
+    stBomb.nHolder = 0;
+    stBomb.nStart = nNow;
+    stBomb.nEndAt = nNow + (nMinSec + Math.random() * (nMaxSec - nMinSec)) * 1000;
+    stBomb.nLoser = rigOn() ? wpick(stBomb.arrPs) : -1;
+    stBomb.bRun = true;
+    stBomb.stOut = null;
+    pAudio ??= CreateAudio();
+    Paint();
+    Tick();
+  }
+  // 똑딱: 터질 때가 가까울수록 빨라짐 (0.6초 → 0.12초)
+  function Tick() {
+    const nNow = performance.now();
+    if (CheckBombBoom(stBomb, nNow)) {
+      Boom();
+      return;
+    }
+    const dRate = Math.min(1, (nNow - stBomb.nStart) / (stBomb.nEndAt - stBomb.nStart));
+    const nBeatMs = 600 - 480 * dRate;
+    elBomb.style.setProperty("--beat", `${nBeatMs}ms`);
+    PlayTone(pAudio, 1200, 0.04);
+    nTimer = setTimeout(Tick, nBeatMs);
+  }
+  function Boom() {
+    stBomb.bRun = false;
+    stBomb.stOut = stBomb.arrPs[stBomb.nHolder];
+    PlayTone(pAudio, 70, 0.9, "sawtooth");
+    navigator.vibrate?.(500);
+    record(stBomb.stOut, "폭탄 돌리기");
+    Paint();
+  }
+  function Paint() {
+    const arrPs = stBomb.arrPs;
+    const stNow = arrPs[stBomb.nHolder];
+    const stNext = arrPs[(stBomb.nHolder + 1) % Math.max(1, arrPs.length)];
+    elBomb.textContent = stBomb.stOut ? "💥" : "💣";
+    elBomb.classList.toggle("run", stBomb.bRun);
+    btnPass.hidden = !stBomb.bRun;
+    btnStart.disabled = stBomb.bRun;
+    selTime.disabled = stBomb.bRun;
+    if (arrPs.length < 2) {
+      elHolder.textContent = "참가자가 2명 이상이어야 해요";
+      elInfo.textContent = "";
+    } else if (stBomb.stOut) {
+      elHolder.replaceChildren(h("span", { class: "boom" }, "펑! "), h("span", { style: `color:${stBomb.stOut.c}` }, stBomb.stOut.name), " 당첨!");
+      elInfo.textContent = "‘시작’을 누르면 다시";
+    } else if (stBomb.bRun) {
+      elHolder.replaceChildren(h("span", { style: `color:${stNow.c}` }, stNow.name));
+      btnPass.textContent = `넘기기 ➡ ${stNext.name}`;
+      elInfo.textContent = "폭탄을 든 사람이 ‘넘기기’를 누르고 다음 사람에게 폰을 건네세요";
+    } else {
+      elHolder.textContent = "언제 터질지 몰라요!";
+      elInfo.textContent = `‘시작’을 누르면 ${stNow.name}부터`;
+    }
+    elStrip.replaceChildren(...CreateTurnStrip(arrPs, stBomb.bRun ? stNow : null));
+  }
+  btnStart.onclick = Start;
+  btnPass.onclick = () => {
+    if (!stBomb.bRun) {
+      return;
+    }
+    PassBomb(stBomb, performance.now());
+    Paint();
+  };
+  stopGame = () => {
+    clearTimeout(nTimer);
+    pAudio?.close();
+  };
+  Ready();
+};
+
+// 반응속도 꼴찌: 가장 느린 사람의 순서 (부정출발 = Infinity, 같으면 앞 사람). 없으면 -1
+function FindSlowest(arrMs) {
+  let nSlow = -1;
+  for (let nIdx = 0; nIdx < arrMs.length; nIdx++) {
+    if (nSlow < 0 || arrMs[nIdx] > arrMs[nSlow]) {
+      nSlow = nIdx;
+    }
+  }
+  return nSlow;
+}
+
+// ---- 반응속도: 한 명씩 화면이 초록색이 되는 순간 누르기. 가장 느린 사람(부정출발 포함)이 당첨 ----
+GAMES.react = () => {
+  const btnNew = h("button", { type: "button", class: "btn primary" }, "🔀 처음부터");
+  const btnPad = h("button", { type: "button", class: "rx-pad" });
+  const elRank = h("ol", { class: "rank" });
+  let stRx = null;
+  let nTimer = 0;
+  let nLockUntil = 0;   // 방금 누른 사람이 한 번 더 눌러 다음 사람 차례를 시작하지 않게 잠깐 막음
+  let pAudio = null;
+  mount("⚡ 반응속도", [btnNew], h("div", { class: "stack pass-wrap" }, btnPad, h("div", { class: "rank-box" }, h("h3", {}, "기록"), elRank)), () => {
+    if (stRx.strPhase === "ready" || stRx.strPhase === "done") {
+      Ready();
+    }
+  });
+
+  function Ready() {
+    clearTimeout(nTimer);
+    stRx = { arrPs: sides().ps, arrMs: [], nTurn: 0, strPhase: "ready", nGoAt: 0, stOut: null };
+    Paint();
+  }
+  function OnPad() {
+    const nNow = performance.now();
+    if (stRx.arrPs.length < 2 || stRx.strPhase === "done" || nNow < nLockUntil) {
+      return;
+    }
+    if (stRx.strPhase === "ready") {
+      pAudio ??= CreateAudio();
+      stRx.strPhase = "wait";
+      nTimer = setTimeout(() => {
+        stRx.strPhase = "go";
+        stRx.nGoAt = performance.now();
+        PlayTone(pAudio, 880, 0.15);
+        Paint();
+      }, 1500 + Math.random() * 2500);
+      Paint();
+    } else if (stRx.strPhase === "wait") {
+      clearTimeout(nTimer);
+      Finish(Infinity);   // 부정출발
+    } else {
+      Finish(Math.round(nNow - stRx.nGoAt));
+    }
+  }
+  function Finish(nMs) {
+    stRx.arrMs.push(nMs);
+    stRx.nTurn++;
+    nLockUntil = performance.now() + 800;
+    stRx.strPhase = stRx.nTurn < stRx.arrPs.length ? "ready" : "done";
+    if (stRx.strPhase === "done") {
+      stRx.stOut = stRx.arrPs[FindSlowest(stRx.arrMs)];
+      record(stRx.stOut, "반응속도");
+    }
+    Paint();
+  }
+  const GetMsText = nMs => nMs === Infinity ? "부정출발 ✖" : `${nMs}ms`;
+  function Paint() {
+    const arrPs = stRx.arrPs;
+    const stNow = arrPs[stRx.nTurn];
+    const nLast = stRx.arrMs.length - 1;
+    const strLast = nLast >= 0 ? `${arrPs[nLast].name}: ${GetMsText(stRx.arrMs[nLast])}` : "";
+    btnPad.className = "rx-pad" + (stRx.strPhase === "wait" ? " wait" : stRx.strPhase === "go" ? " go" : "");
+    if (arrPs.length < 2) {
+      btnPad.replaceChildren("참가자가 2명 이상이어야 해요");
+    } else if (stRx.strPhase === "ready") {
+      btnPad.replaceChildren(h("span", { style: `color:${stNow.c}` }, stNow.name), h("span", {}, "차례"),
+        h("small", {}, (strLast ? strLast + " · " : "") + "누르면 시작, 초록색이 되는 순간 바로 누르세요"));
+    } else if (stRx.strPhase === "wait") {
+      btnPad.replaceChildren("기다리세요…", h("small", {}, "먼저 누르면 부정출발"));
+    } else if (stRx.strPhase === "go") {
+      btnPad.replaceChildren("지금!");
+    } else {
+      btnPad.replaceChildren(h("span", {}, "🏁 ", stRx.stOut.name, " 당첨!"), h("small", {}, `${strLast} · 가장 느렸어요 · ‘처음부터’로 다시`));
+    }
+    const arrOrder = stRx.arrMs.map((nMs, nIdx) => ({ nMs, stP: arrPs[nIdx] })).sort((stA, stB) => stA.nMs - stB.nMs);
+    elRank.replaceChildren(...arrOrder.map(stRec => h("li", {}, h("i", { style: `background:${stRec.stP.c}` }), `${stRec.stP.name} · ${GetMsText(stRec.nMs)}`)));
+  }
+  btnPad.onpointerdown = e => {
+    e.preventDefault();
+    OnPad();
+  };
+  btnPad.onkeydown = e => {   // 키보드로도 (Space·Enter)
+    if (e.code === "Space" || e.code === "Enter") {
+      e.preventDefault();
+      OnPad();
+    }
+  };
+  btnNew.onclick = Ready;
+  stopGame = () => {
+    clearTimeout(nTimer);
+    pAudio?.close();
+  };
+  Ready();
+};
+
+/**
+ * 라이어 한 판: 주제("" = 아무거나)에서 제시어 하나, 라이어 한 명
+ * 몰아주기면 걸릴 사람이 라이어가 되기 쉬움(wpick). 안 켜면 고르게
+ */
+function CreateLiarRound(arrPs, strTopic) {
+  const arrTopics = Object.keys(LIAR_WORDS);
+  const strPick = strTopic || arrTopics[Math.floor(Math.random() * arrTopics.length)];
+  const arrWords = LIAR_WORDS[strPick];
+  return { strTopic: strPick, strWord: arrWords[Math.floor(Math.random() * arrWords.length)], nLiar: wpick(arrPs) };
+}
+
+// ---- 라이어 게임: 폰을 돌려 각자 제시어 확인(라이어만 모름) → 설명하고 지목 → 공개. 라이어가 걸리면 라이어 벌칙 ----
+GAMES.liar = () => {
+  const selTopic = h("select", { class: "sel", "aria-label": "주제" }, h("option", { value: "" }, "주제 아무거나"),
+    Object.keys(LIAR_WORDS).map(strTopic => h("option", { value: strTopic }, strTopic)));
+  const btnNew = h("button", { type: "button", class: "btn primary" }, "🔀 새 판");
+  const elCard = h("div", { class: "liar-card" });
+  const elStrip = h("div", { class: "ps-strip" });
+  let stLiar = null;
+  mount("🕵️ 라이어 게임", [selTopic, btnNew], h("div", { class: "stack pass-wrap" }, elCard, elStrip), () => StartRound());
+
+  function StartRound() {
+    const arrPs = sides().ps;
+    stLiar = { arrPs, nTurn: 0, bShow: false, strPhase: "pass", bDone: false };
+    if (arrPs.length >= 3) {
+      Object.assign(stLiar, CreateLiarRound(arrPs, selTopic.value));
+    }
+    Paint();
+  }
+  function Next() {
+    stLiar.bShow = false;
+    stLiar.nTurn++;
+    if (stLiar.nTurn >= stLiar.arrPs.length) {
+      stLiar.strPhase = "talk";
+    }
+    Paint();
+  }
+  function Finish(bCaught) {
+    stLiar.bDone = true;
+    if (bCaught) {
+      record(stLiar.arrPs[stLiar.nLiar], "라이어 게임");
+    } else {
+      toast("라이어 승리! 라이어 빼고 모두 한 잔 🍻");
+    }
+    Paint();
+  }
+  const CreateBtn = (strClass, strText, fnClick) => h("button", { type: "button", class: strClass, onclick: fnClick }, strText);
+  function Paint() {
+    const arrPs = stLiar.arrPs;
+    const stNow = arrPs[stLiar.nTurn];
+    const bLiarNow = stLiar.nTurn === stLiar.nLiar;
+    elCard.classList.toggle("liar", stLiar.strPhase === "pass" && stLiar.bShow && bLiarNow);
+    if (arrPs.length < 3) {
+      elCard.replaceChildren(h("p", { class: "note" }, "참가자가 3명 이상이어야 해요"));
+    } else if (stLiar.strPhase === "pass" && !stLiar.bShow) {
+      elCard.replaceChildren(h("small", {}, "🤫 다른 사람이 못 보게"), h("strong", { style: `color:${stNow.c}` }, stNow.name),
+        CreateBtn("btn primary big", "제시어 보기", () => {
+          stLiar.bShow = true;
+          Paint();
+        }));
+    } else if (stLiar.strPhase === "pass") {
+      const stNext = arrPs[stLiar.nTurn + 1];
+      elCard.replaceChildren(h("small", {}, `주제: ${stLiar.strTopic}`), h("strong", {}, bLiarNow ? "😈 당신은 라이어!" : stLiar.strWord),
+        h("small", {}, bLiarNow ? "들키지 말고 제시어를 알아내세요" : "라이어에게 들키지 않게 설명하세요"),
+        CreateBtn("btn big", stNext ? `확인 → ${stNext.name}에게 넘기기` : "확인 → 모두 봤어요", Next));
+    } else if (stLiar.strPhase === "talk") {
+      elCard.replaceChildren(h("small", {}, `주제: ${stLiar.strTopic}`), h("strong", {}, "🗣 한 명씩 설명!"),
+        h("small", {}, `${arrPs[0].name}부터 차례로 제시어를 한마디로 설명하고, 다 같이 라이어를 지목하세요`),
+        CreateBtn("btn primary big", "🕵️ 라이어 공개", () => {
+          stLiar.strPhase = "reveal";
+          Paint();
+        }));
+    } else {
+      const stLiarP = arrPs[stLiar.nLiar];
+      elCard.replaceChildren(h("small", {}, `제시어: ${stLiar.strWord}`), h("strong", {}, "라이어는 ", h("span", { style: `color:${stLiarP.c}` }, stLiarP.name)),
+        stLiar.bDone ? h("small", {}, "‘새 판’을 누르면 다시")
+          : h("div", { class: "bar" }, CreateBtn("btn primary", "🍺 라이어 걸림 (라이어 벌칙)", () => Finish(true)), CreateBtn("btn", "😈 라이어 승리", () => Finish(false))));
+    }
+    elStrip.replaceChildren(...CreateTurnStrip(arrPs, stLiar.strPhase === "pass" ? stNow : null));
+  }
+  selTopic.onchange = StartRound;
+  btnNew.onclick = StartRound;
+  StartRound();
+};
+
 // ---- 벌칙 통계판: 놀이 당첨 횟수 순위 (오늘의 술상무) ----
 GAMES.stats = () => {
   const list = L(), tally = list.tally || [];
@@ -2476,7 +2957,7 @@ GAMES.stats = () => {
   const person = name => list.people.find(p => p.name === name);
   const dot = name => { const p = person(name); return p ? colorFor(p) : "var(--muted)"; };
   const gamesText = o => [...o.games].map(([g, n]) => `${g} ${n}`).join(" · ");
-  const body = !rows.length ? h("p", { class: "hint" }, "아직 기록이 없어요. 핀볼·돌림판·스피드 룰렛·대포 뽑기·해적 룰렛·사다리·경마에서 당첨되면 여기에 쌓여요.")
+  const body = !rows.length ? h("p", { class: "hint" }, "아직 기록이 없어요. 핀볼·돌림판·스피드 룰렛·대포 뽑기·해적 룰렛·사다리·경마·업다운·폭탄 돌리기·반응속도·라이어에서 당첨되면 여기에 쌓여요.")
     : h("div", { class: "stack" },
       h("div", { class: "podium" }, rows.slice(0, 3).map((o, i) => h("div", { class: "pod pod-" + (i + 1) },
         h("div", { class: "pod-medal" }, ["👑", "🥈", "🥉"][i]), h("strong", {}, o.name), h("b", {}, `${o.n}회`), h("small", {}, gamesText(o))))),
