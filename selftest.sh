@@ -11,7 +11,8 @@ mkdir -p "$OUT"
 cat 인원관리.html selftest_tail.html > "$OUT/test.html"
 # 크롬은 한글 경로의 file:// 주소를 못 여는 경우가 있어 주소만 인코딩한다
 URL="file:///D:/0000000.CODE/.tmp/%EC%9D%B8%EC%9B%90%EA%B4%80%EB%A6%AC/selftest/test.html"
-MSYS_NO_PATHCONV=1 "/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --no-first-run \
+# --force-prefers-reduced-motion: 움직임 줄이기 설정이어도 테마 효과가 움직이는지 보는 시험이 어느 PC에서나 같게
+MSYS_NO_PATHCONV=1 "/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --no-first-run --force-prefers-reduced-motion \
   --user-data-dir="$OUT/prof" --virtual-time-budget=60000 --window-size=1100,500 --screenshot="$OUT/result.png" "$URL"
 for i in $(seq 1 60); do   # 크롬이 바로 돌아오고 뒤에서 그림을 씀: 최대 60초 기다림
   [ -f "$OUT/result.png" ] && break

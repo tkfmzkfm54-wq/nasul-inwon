@@ -488,16 +488,13 @@ tr.off .chk, tr.off input.time { opacity: .45; }
 .theme-list button { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); font-weight: 700; text-align: left; }
 .theme-list button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 /* 테마 효과: 화면 위로 떨어지거나(fall) 올라가거나(rise) 제자리에서 반짝이는(twinkle) 조각들. 누르기는 아래로 그대로 통과.
-   헤더(5) 위·알림(10) 아래. 움직임 줄이기 설정(Windows 애니메이션 끔 포함)이면 흩어진 채로 멈춰 있음 */
+   헤더(5) 위·알림(10) 아래. 움직임 줄이기 설정(Windows 애니메이션 끔 포함)과 상관없이 움직임:
+   사람이 직접 고른 테마이고, 싫으면 기본 테마로 끌 수 있어서 (11-21 사용자 요청) */
 .fx { position: fixed; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; opacity: .85; }
-.fx i { position: absolute; top: var(--y); left: var(--x); }
-.fx b { display: block; font-size: var(--s); font-style: normal; line-height: 1; }
-@media (prefers-reduced-motion: no-preference) {
-  .fx i { top: 0; animation: fx-fall var(--d) linear var(--dl) infinite; }
-  .fx[data-kind="rise"] i { animation-direction: reverse; }
-  .fx[data-kind="twinkle"] i { top: var(--y); animation-name: fx-twinkle; animation-timing-function: ease-in-out; animation-direction: alternate; }
-  .fx b { animation: fx-sway calc(var(--d) / 3) ease-in-out var(--dl) infinite alternate; }
-}
+.fx i { position: absolute; top: 0; left: var(--x); animation: fx-fall var(--d) linear var(--dl) infinite; }
+.fx[data-kind="rise"] i { animation-direction: reverse; }
+.fx[data-kind="twinkle"] i { top: var(--y); animation-name: fx-twinkle; animation-timing-function: ease-in-out; animation-direction: alternate; }
+.fx b { display: block; font-size: var(--s); font-style: normal; line-height: 1; animation: fx-sway calc(var(--d) / 3) ease-in-out var(--dl) infinite alternate; }
 .fx .dot { width: var(--s); height: var(--s); border-radius: 50%; background: #fff; box-shadow: 0 0 6px rgb(255 255 255 / .7); }
 .fx .paper { width: calc(var(--s) * .7); height: var(--s); border-radius: 2px; background: var(--c); }
 .fx .drop { width: 1.5px; height: var(--s); background: linear-gradient(transparent, rgb(190 220 240 / .85)); }
@@ -2207,12 +2204,8 @@ $("#themeBtn").onclick = async () => {
       ApplyTheme(stTheme);
     },
   }, stTheme.strName));
-  let strNote = "눌러 보면 바로 바뀌어요. 이 폰에만 저장돼요.";
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    strNote += "\n이 기기는 ‘움직임 줄이기’(Windows는 애니메이션 효과 끔)가 켜져 있어 효과가 멈춘 채로 보여요.";
-  }
   const stRes = await ask({ title: "🎨 테마", ok: "이걸로", fields: [
-    { type: "note", text: strNote },
+    { type: "note", text: "눌러 보면 바로 바뀌어요. 이 폰에만 저장돼요." },
     { type: "node", node: h("div", { class: "theme-list" }, arrBtns) },
   ] });
   if (stRes) {
